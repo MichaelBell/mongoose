@@ -699,7 +699,7 @@ static char * mg_strdup(const char *str) {
 }
 
 static const char *mg_strcasestr(const char *big_str, const char *small_str) {
-  int i, big_len = strlen(big_str), small_len = strlen(small_str);
+  size_t i, big_len = strlen(big_str), small_len = strlen(small_str);
 
   for (i = 0; i <= big_len - small_len; i++) {
     if (mg_strncasecmp(big_str + i, small_str, small_len) == 0) {
@@ -860,9 +860,10 @@ static const char *next_option(const char *list, struct vec *val,
   return list;
 }
 
-static int match_prefix(const char *pattern, int pattern_len, const char *str) {
+static int match_prefix(const char *pattern, size_t pattern_len, const char *str) {
   const char *or_str;
-  int i, j, len, res;
+  size_t i, j, len;
+  int res;
 
   if ((or_str = (const char *) memchr(pattern, '|', pattern_len)) != NULL) {
     res = match_prefix(pattern, or_str - pattern, str);
@@ -876,27 +877,27 @@ static int match_prefix(const char *pattern, int pattern_len, const char *str) {
     if (pattern[i] == '?' && str[j] != '\0') {
       continue;
     } else if (pattern[i] == '$') {
-      return str[j] == '\0' ? j : -1;
+      return str[j] == '\0' ? (int)j : -1;
     } else if (pattern[i] == '*') {
       i++;
       if (pattern[i] == '*') {
         i++;
-        len = (int) strlen(str + j);
+        len = strlen(str + j);
       } else {
-        len = (int) strcspn(str + j, "/");
+        len = strcspn(str + j, "/");
       }
       if (i == pattern_len) {
-        return j + len;
+        return (int)(j + len);
       }
       do {
         res = match_prefix(pattern + i, pattern_len - i, str + j + len);
       } while (res == -1 && len-- > 0);
-      return res == -1 ? -1 : j + res + len;
+      return res == -1 ? -1 : (int)(j + res + len);
     } else if (pattern[i] != str[j]) {
       return -1;
     }
   }
-  return j;
+  return (int)j;
 }
 
 // HTTP 1.1 assumes keep alive if "Connection:" header is not set
@@ -1529,7 +1530,8 @@ static int pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len) {
 }
 
 int mg_read(struct mg_connection *conn, void *buf, size_t len) {
-  int n, buffered_len, nread;
+  int n, nread;
+  size_t buffered_len;
   const char *body;
 
   nread = 0;
@@ -1544,13 +1546,13 @@ int mg_read(struct mg_connection *conn, void *buf, size_t len) {
     body = conn->buf + conn->request_len + conn->consumed_content;
     buffered_len = &conn->buf[conn->data_len] - body;
     if (buffered_len > 0) {
-      if (len < (size_t) buffered_len) {
-        buffered_len = (int) len;
+      if (len < buffered_len) {
+        buffered_len = len;
       }
-      memcpy(buf, body, (size_t) buffered_len);
+      memcpy(buf, body, buffered_len);
       len -= buffered_len;
       conn->consumed_content += buffered_len;
-      nread += buffered_len;
+      nread += (int)buffered_len;
       buf = (char *) buf + buffered_len;
     }
 
@@ -1704,7 +1706,7 @@ int mg_get_var(const char *data, size_t data_len, const char *name,
         assert(s >= p);
 
         // Decode variable into destination buffer
-        len = mg_url_decode(p, (size_t)(s - p), dst, dst_len, 1);
+        len = mg_url_decode(p, (int)(s - p), dst, (int)dst_len, 1);
 
         // Redirect error code from -1 to -2 (destination buffer too small).
         if (len == -1) {
@@ -1745,7 +1747,7 @@ int mg_get_cookie(const char *cookie_header, const char *var_name,
           p--;
         }
         if ((size_t) (p - s) < dst_size) {
-          len = p - s;
+          len = (int)(p - s);
           mg_strlcpy(dst, s, (size_t) len + 1);
         } else {
           len = -3;
@@ -2358,7 +2360,7 @@ static char *mg_fgets(char *buf, size_t size, struct file *filep, char **p) {
     *p = eof;
     return eof;
   } else if (filep->fp != NULL) {
-    return fgets(buf, size, filep->fp);
+    return fgets(buf, (int)size, filep->fp);
   } else {
     return NULL;
   }
@@ -2748,7 +2750,7 @@ static void send_file_data(struct mg_connection *conn, struct file *filep,
       }
 
       // Read from file, exit the loop on error
-      if ((num_read = fread(buf, 1, (size_t) to_read, filep->fp)) <= 0) {
+      if ((num_read = (int)fread(buf, 1, (size_t) to_read, filep->fp)) <= 0) {
         break;
       }
 
@@ -3008,7 +3010,7 @@ static int forward_body_data(struct mg_connection *conn, FILE *fp,
     }
 
     body = conn->buf + conn->request_len + conn->consumed_content;
-    buffered_len = &conn->buf[conn->data_len] - body;
+    buffered_len = (int)(&conn->buf[conn->data_len] - body);
     assert(buffered_len >= 0);
     assert(conn->consumed_content == 0);
 
@@ -3366,11 +3368,12 @@ static int put_dir(struct mg_connection *conn, const char *path) {
   char buf[PATH_MAX];
   const char *s, *p;
   struct file file = STRUCT_FILE_INITIALIZER;
-  int len, res = 1;
+  size_t len;
+  int res = 1;
 
   for (s = p = path + 2; (p = strchr(s, '/')) != NULL; s = ++p) {
     len = p - path;
-    if (len >= (int) sizeof(buf)) {
+    if (len >= sizeof(buf)) {
       res = -1;
       break;
     }
@@ -4026,7 +4029,7 @@ int mg_upload(struct mg_connection *conn, const char *destination_dir) {
     return num_uploaded_files;
   }
 
-  boundary_len = strlen(boundary);
+  boundary_len = (int)strlen(boundary);
   bl = boundary_len + 4;  // \r\n--<boundary>
   for (;;) {
     // Pull in headers
@@ -4972,7 +4975,7 @@ static void *master_thread(void *thread_func_param) {
   pfd = calloc(ctx->num_listening_sockets, sizeof(pfd[0]));
   while (pfd != NULL && ctx->stop_flag == 0) {
     for (i = 0; i < ctx->num_listening_sockets; i++) {
-      pfd[i].fd = ctx->listening_sockets[i].sock;
+      pfd[i].fd = (int)ctx->listening_sockets[i].sock;
       pfd[i].events = POLLIN;
     }
 
