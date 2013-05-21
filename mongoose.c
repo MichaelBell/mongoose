@@ -69,9 +69,11 @@
 #include <stdio.h>
 
 #if defined(_WIN32) && !defined(__SYMBIAN32__) // Windows specific
-#undef _WIN32_WINNT
-#define _WIN32_WINNT 0x0400 // To make it link in VS2005
+
+#include <winsock2.h>
 #include <windows.h>
+#define HAVE_POLL
+#define poll WSAPoll
 
 #ifndef PATH_MAX
 #define PATH_MAX MAX_PATH
@@ -234,6 +236,7 @@ struct pollfd {
 #ifndef O_BINARY
 #define O_BINARY  0
 #endif // O_BINARY
+#define open_socket socket
 #define closesocket(a) close(a)
 #define mg_mkdir(x, y) mkdir(x, y)
 #define mg_remove(x) remove(x)
@@ -1246,6 +1249,14 @@ static int poll(struct pollfd *pfd, int n, int milliseconds) {
 #endif // HAVE_POLL
 
 #define set_close_on_exec(x) // No FD_CLOEXEC on Windows
+
+static SOCKET open_socket(int af, int type, int protocol)
+{
+#ifndef WSA_FLAG_NO_HANDLE_INHERIT
+#define WSA_FLAG_NO_HANDLE_INHERIT 0x80
+#endif
+	return WSASocket(af, type, protocol, NULL, 0, WSA_FLAG_NO_HANDLE_INHERIT);
+}
 
 int mg_start_thread(mg_thread_func_t f, void *p) {
   return (long)_beginthread((void (__cdecl *)(void *)) f, 0, p) == -1L ? -1 : 0;
@@ -4295,7 +4306,7 @@ static int set_ports_option(struct mg_context *ctx) {
     } else if (so.is_ssl && ctx->ssl_ctx == NULL) {
       cry(fc(ctx), "Cannot add SSL socket, is -ssl_certificate option set?");
       success = 0;
-    } else if ((so.sock = socket(so.lsa.sa.sa_family, SOCK_STREAM, 6)) ==
+    } else if ((so.sock = open_socket(so.lsa.sa.sa_family, SOCK_STREAM, 6)) ==
                INVALID_SOCKET ||
                // On Windows, SO_REUSEADDR is recommended only for
                // broadcast UDP sockets
