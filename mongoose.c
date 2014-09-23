@@ -72,6 +72,11 @@
 
 #include <winsock2.h>
 #include <windows.h>
+// CIG BEGIN - MSVC 12 fixes.
+#if defined(NTDDI_VERSION) && NTDDI_VERSION >= NTDDI_VISTA
+#include <WS2tcpip.h>
+#endif
+// CIG END
 #define HAVE_POLL
 #define poll WSAPoll
 
@@ -588,7 +593,10 @@ static void sockaddr_to_string(char *buf, size_t len,
   inet_ntop(usa->sa.sa_family, usa->sa.sa_family == AF_INET ?
             (void *) &usa->sin.sin_addr :
             (void *) &usa->sin6.sin6_addr, buf, len);
-#elif defined(_WIN32)
+// CIG BEGIN - MSVC 12 fixes.
+//#elif defined(_WIN32)
+#elif defined(_WIN32) && (!defined(NTDDI_VERSION) || NTDDI_VERSION < NTDDI_VISTA)
+// CIG END
   // Only Windoze Vista (and newer) have inet_ntop()
   strncpy(buf, inet_ntoa(usa->sin.sin_addr), len);
 #else
@@ -4651,6 +4659,13 @@ void mg_close_connection(struct mg_connection *conn) {
   free(conn);
 }
 
+// CIG BEGIN - MSVC 12 fixes.
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996) // gethostbyname() is deprecated.
+#endif
+// CIG END
+
 struct mg_connection *mg_connect(const char *host, int port, int use_ssl,
                                  char *ebuf, size_t ebuf_len) {
   static struct mg_context fake_ctx;
@@ -4707,6 +4722,12 @@ struct mg_connection *mg_connect(const char *host, int port, int use_ssl,
 
   return conn;
 }
+
+// CIG BEGIN - MSVC 12 fixes.
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+// CIG END
 
 static int is_valid_uri(const char *uri) {
   // Conform to http://www.w3.org/Protocols/rfc2616/rfc2616-sec5.html#sec5.1.2
