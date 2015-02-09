@@ -5030,10 +5030,10 @@ static void *master_thread(void *thread_func_param) {
   close_all_listening_sockets(ctx);
 
   // Wakeup workers that are waiting for connections to handle.
+  (void)pthread_mutex_lock(&ctx->mutex);
   pthread_cond_broadcast(&ctx->sq_full);
 
   // Wait until all threads finish
-  (void) pthread_mutex_lock(&ctx->mutex);
   while (ctx->num_threads > 0) {
     (void) pthread_cond_wait(&ctx->cond, &ctx->mutex);
   }
@@ -5089,6 +5089,11 @@ void mg_stop(struct mg_context *ctx) {
     (void) mg_sleep(10);
   }
   free_context(ctx);
+
+#ifdef _WIN32
+  // Wait briefly to ensure other threads finished exiting before we risk unloading the DLL.
+  Sleep(1);
+#endif
 
 #if defined(_WIN32) && !defined(__SYMBIAN32__)
   (void) WSACleanup();
