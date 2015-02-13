@@ -275,7 +275,7 @@ static pthread_t pthread_self(void) {
 #undef DEBUG_TRACE
 #define DEBUG_TRACE(x)
 #else
-#if defined(DEBUG)
+#if defined(DEBUG) && 0
 #define DEBUG_TRACE(x) do { \
   flockfile(stdout); \
   printf("*** %lu.%p.%s.%d: ", \
@@ -5089,11 +5089,6 @@ void mg_stop(struct mg_context *ctx) {
     (void) mg_sleep(10);
   }
   free_context(ctx);
-
-#ifdef _WIN32
-  // Wait briefly to ensure other threads finished exiting before we risk unloading the DLL.
-  Sleep(1);
-#endif
 
 #if defined(_WIN32) && !defined(__SYMBIAN32__)
   (void) WSACleanup();
