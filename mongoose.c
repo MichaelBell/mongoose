@@ -276,7 +276,7 @@ static pthread_t pthread_self(void) {
 #undef DEBUG_TRACE
 #define DEBUG_TRACE(x)
 #else
-#if defined(DEBUG)
+#if defined(DEBUG) && 0
 #define DEBUG_TRACE(x) do { \
   flockfile(stdout); \
   printf("*** %lu.%p.%s.%d: ", \
@@ -5031,10 +5031,10 @@ static void *master_thread(void *thread_func_param) {
   close_all_listening_sockets(ctx);
 
   // Wakeup workers that are waiting for connections to handle.
+  (void)pthread_mutex_lock(&ctx->mutex);
   pthread_cond_broadcast(&ctx->sq_full);
 
   // Wait until all threads finish
-  (void) pthread_mutex_lock(&ctx->mutex);
   while (ctx->num_threads > 0) {
     (void) pthread_cond_wait(&ctx->cond, &ctx->mutex);
   }
