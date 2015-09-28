@@ -36,6 +36,7 @@
 #pragma warning (disable : 4127)
 // non-constant aggregate initializer: issued due to missing C99 support
 #pragma warning (disable : 4204)
+#pragma warning (disable : 6031 6053 6054 6262 6340 6102 28251 28252 28253)
 #endif
 
 // Disable WIN32_LEAN_AND_MEAN.
