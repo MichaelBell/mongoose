@@ -28,12 +28,12 @@
 extern "C" {
 #endif // __cplusplus
 
-struct mg_context;     // Handle for the HTTP service itself
-struct mg_connection;  // Handle for the individual connection
+struct kyt_mg_context;     // Handle for the HTTP service itself
+struct kyt_mg_connection;  // Handle for the individual connection
 
 
 // This structure contains information about the HTTP request.
-struct mg_request_info {
+struct kyt_mg_request_info {
   const char *request_method; // "GET", "POST", etc
   const char *uri;            // URL-decoded URI
   const char *http_version;   // E.g. "1.0", "1.1"
@@ -42,34 +42,34 @@ struct mg_request_info {
   long remote_ip;             // Client's IP address
   int remote_port;            // Client's port
   int is_ssl;                 // 1 if SSL-ed, 0 if not
-  void *user_data;            // User data pointer passed to mg_start()
+  void *user_data;            // User data pointer passed to kyt_mg_start()
 
   int num_headers;            // Number of HTTP headers
-  struct mg_header {
+  struct kyt_mg_header {
     const char *name;         // HTTP header name
     const char *value;        // HTTP header value
   } http_headers[64];         // Maximum 64 headers
 };
 
 
-// This structure needs to be passed to mg_start(), to let mongoose know
+// This structure needs to be passed to kyt_mg_start(), to let mongoose know
 // which callbacks to invoke. For detailed description, see
 // https://github.com/valenok/mongoose/blob/master/UserManual.md
-struct mg_callbacks {
+struct kyt_mg_callbacks {
   // Called when mongoose has received new HTTP request.
   // If callback returns non-zero,
   // callback must process the request by sending valid HTTP headers and body,
   // and mongoose will not do any further processing.
   // If callback returns 0, mongoose processes the request itself. In this case,
   // callback must not send any data to the client.
-  int  (*begin_request)(struct mg_connection *);
+  int  (*begin_request)(struct kyt_mg_connection *);
 
   // Called when mongoose has finished processing request.
-  void (*end_request)(const struct mg_connection *, int reply_status_code);
+  void (*end_request)(const struct kyt_mg_connection *, int reply_status_code);
 
   // Called when mongoose is about to log a message. If callback returns
   // non-zero, mongoose does not log anything.
-  int  (*log_message)(const struct mg_connection *, const char *message);
+  int  (*log_message)(const struct kyt_mg_connection *, const char *message);
 
   // Called when mongoose initializes SSL library.
   int  (*init_ssl)(void *ssl_context, void *user_data);
@@ -77,11 +77,11 @@ struct mg_callbacks {
   // Called when websocket request is received, before websocket handshake.
   // If callback returns 0, mongoose proceeds with handshake, otherwise
   // cinnection is closed immediately.
-  int (*websocket_connect)(const struct mg_connection *);
+  int (*websocket_connect)(const struct kyt_mg_connection *);
 
   // Called when websocket handshake is successfully completed, and
   // connection is ready for data exchange.
-  void (*websocket_ready)(struct mg_connection *);
+  void (*websocket_ready)(struct kyt_mg_connection *);
 
   // Called when data frame has been received from the client.
   // Parameters:
@@ -91,7 +91,7 @@ struct mg_callbacks {
   // Return value:
   //    non-0: keep this websocket connection opened.
   //    0:     close this websocket connection.
-  int  (*websocket_data)(struct mg_connection *, int bits,
+  int  (*websocket_data)(struct kyt_mg_connection *, int bits,
                          char *data, size_t data_len);
 
   // Called when mongoose tries to open a file. Used to intercept file open
@@ -103,38 +103,38 @@ struct mg_callbacks {
   //    NULL: do not serve file from memory, proceed with normal file open.
   //    non-NULL: pointer to the file contents in memory. data_len must be
   //              initilized with the size of the memory block.
-  const char * (*open_file)(const struct mg_connection *,
+  const char * (*open_file)(const struct kyt_mg_connection *,
                              const char *path, size_t *data_len);
 
   // Called when mongoose is about to serve Lua server page (.lp file), if
   // Lua support is enabled.
   // Parameters:
   //   lua_context: "lua_State *" pointer.
-  void (*init_lua)(struct mg_connection *, void *lua_context);
+  void (*init_lua)(struct kyt_mg_connection *, void *lua_context);
 
   // Called when mongoose has uploaded a file to a temporary directory as a
-  // result of mg_upload() call.
+  // result of kyt_mg_upload() call.
   // Parameters:
   //    file_file: full path name to the uploaded file.
-  void (*upload)(struct mg_connection *, const char *file_name);
+  void (*upload)(struct kyt_mg_connection *, const char *file_name);
 
   // Called when mongoose is about to send HTTP error to the client.
   // Implementing this callback allows to create custom error pages.
   // Parameters:
   //   status: HTTP error status code.
-  int  (*http_error)(struct mg_connection *, int status);
+  int  (*http_error)(struct kyt_mg_connection *, int status);
 };
 
 // Start web server.
 //
 // Parameters:
-//   callbacks: mg_callbacks structure with user-defined callbacks.
+//   callbacks: kyt_mg_callbacks structure with user-defined callbacks.
 //   options: NULL terminated list of option_name, option_value pairs that
 //            specify Mongoose configuration parameters.
 //
 // Side-effects: on UNIX, ignores SIGCHLD and SIGPIPE signals. If custom
 //    processing is required for these, signal handlers must be set up
-//    after calling mg_start().
+//    after calling kyt_mg_start().
 //
 //
 // Example:
@@ -143,14 +143,14 @@ struct mg_callbacks {
 //     "listening_ports", "80,443s",
 //     NULL
 //   };
-//   struct mg_context *ctx = mg_start(&my_func, NULL, options);
+//   struct kyt_mg_context *ctx = kyt_mg_start(&my_func, NULL, options);
 //
 // Refer to https://github.com/valenok/mongoose/blob/master/UserManual.md
 // for the list of valid option and their possible values.
 //
 // Return:
 //   web server context, or NULL on error.
-struct mg_context *mg_start(const struct mg_callbacks *callbacks,
+struct kyt_mg_context *kyt_mg_start(const struct kyt_mg_callbacks *callbacks,
                             void *user_data,
                             const char **configuration_options);
 
@@ -160,7 +160,7 @@ struct mg_context *mg_start(const struct mg_callbacks *callbacks,
 // Must be called last, when an application wants to stop the web server and
 // release all associated resources. This function blocks until all Mongoose
 // threads are stopped. Context pointer becomes invalid.
-void mg_stop(struct mg_context *);
+void kyt_mg_stop(struct kyt_mg_context *);
 
 
 // Get the value of particular configuration parameter.
@@ -169,13 +169,13 @@ void mg_stop(struct mg_context *);
 // If given parameter name is not valid, NULL is returned. For valid
 // names, return value is guaranteed to be non-NULL. If parameter is not
 // set, zero-length string is returned.
-const char *mg_get_option(const struct mg_context *ctx, const char *name);
+const char *kyt_mg_get_option(const struct kyt_mg_context *ctx, const char *name);
 
 
 // Return array of strings that represent valid configuration options.
 // For each option, a short name, long name, and default value is returned.
 // Array is NULL terminated.
-const char **mg_get_valid_option_names(void);
+const char **kyt_mg_get_valid_option_names(void);
 
 
 // Add, edit or delete the entry in the passwords file.
@@ -190,14 +190,14 @@ const char **mg_get_valid_option_names(void);
 //
 // Return:
 //   1 on success, 0 on error.
-int mg_modify_passwords_file(const char *passwords_file_name,
+int kyt_mg_modify_passwords_file(const char *passwords_file_name,
                              const char *domain,
                              const char *user,
                              const char *password);
 
 
 // Return information associated with the request.
-struct mg_request_info *mg_get_request_info(struct mg_connection *);
+struct kyt_mg_request_info *kyt_mg_get_request_info(struct kyt_mg_connection *);
 
 
 // Send data to the client.
@@ -205,7 +205,7 @@ struct mg_request_info *mg_get_request_info(struct mg_connection *);
 //  0   when the connection has been closed
 //  -1  on error
 //  >0  number of bytes written on success
-int mg_write(struct mg_connection *, const void *buf, size_t len);
+int kyt_mg_write(struct kyt_mg_connection *, const void *buf, size_t len);
 
 
 // Macros for enabling compiler-specific checks for printf-like arguments.
@@ -229,17 +229,17 @@ int mg_write(struct mg_connection *, const void *buf, size_t len);
 
 // Send data to the client using printf() semantics.
 //
-// Works exactly like mg_write(), but allows to do message formatting.
-int mg_printf(struct mg_connection *,
+// Works exactly like kyt_mg_write(), but allows to do message formatting.
+int kyt_mg_printf(struct kyt_mg_connection *,
               PRINTF_FORMAT_STRING(const char *fmt), ...) PRINTF_ARGS(2, 3);
 
 
 // Send contents of the entire file together with HTTP headers.
-void mg_send_file(struct mg_connection *conn, const char *path);
+void kyt_mg_send_file(struct kyt_mg_connection *conn, const char *path);
 
 
 // Read data from the remote end, return number of bytes read.
-int mg_read(struct mg_connection *, void *buf, size_t len);
+int kyt_mg_read(struct kyt_mg_connection *, void *buf, size_t len);
 
 
 // Get the value of particular HTTP header.
@@ -247,7 +247,7 @@ int mg_read(struct mg_connection *, void *buf, size_t len);
 // This is a helper function. It traverses request_info->http_headers array,
 // and if the header is present in the array, returns its value. If it is
 // not present, NULL is returned.
-const char *mg_get_header(const struct mg_connection *, const char *name);
+const char *kyt_mg_get_header(const struct kyt_mg_connection *, const char *name);
 
 
 // Get a value of particular form variable.
@@ -269,7 +269,7 @@ const char *mg_get_header(const struct mg_connection *, const char *name);
 //
 // Destination buffer is guaranteed to be '\0' - terminated if it is not
 // NULL or zero length.
-int mg_get_var(const char *data, size_t data_len,
+int kyt_mg_get_var(const char *data, size_t data_len,
                const char *var_name, char *dst, size_t dst_len);
 
 // Fetch value of certain cookie variable into the destination buffer.
@@ -285,7 +285,7 @@ int mg_get_var(const char *data, size_t data_len,
 //          parameter is not found).
 //      -2 (destination buffer is NULL, zero length or too small to hold the
 //          value).
-int mg_get_cookie(const char *cookie, const char *var_name,
+int kyt_mg_get_cookie(const char *cookie, const char *var_name,
                   char *buf, size_t buf_len);
 
 
@@ -296,42 +296,42 @@ int mg_get_cookie(const char *cookie, const char *var_name,
 //   error_buffer, error_buffer_size: error message placeholder.
 //   request_fmt,...: HTTP request.
 // Return:
-//   On success, valid pointer to the new connection, suitable for mg_read().
+//   On success, valid pointer to the new connection, suitable for kyt_mg_read().
 //   On error, NULL. error_buffer contains error message.
 // Example:
 //   char ebuf[100];
-//   struct mg_connection *conn;
-//   conn = mg_download("google.com", 80, 0, ebuf, sizeof(ebuf),
+//   struct kyt_mg_connection *conn;
+//   conn = kyt_mg_download("google.com", 80, 0, ebuf, sizeof(ebuf),
 //                      "%s", "GET / HTTP/1.0\r\nHost: google.com\r\n\r\n");
-struct mg_connection *mg_download(const char *host, int port, int use_ssl,
+struct kyt_mg_connection *kyt_mg_download(const char *host, int port, int use_ssl,
                                   char *error_buffer, size_t error_buffer_size,
                                   PRINTF_FORMAT_STRING(const char *request_fmt),
                                   ...) PRINTF_ARGS(6, 7);
 
 
-// Close the connection opened by mg_download().
-void mg_close_connection(struct mg_connection *conn);
+// Close the connection opened by kyt_mg_download().
+void kyt_mg_close_connection(struct kyt_mg_connection *conn);
 
 
 // File upload functionality. Each uploaded file gets saved into a temporary
 // file and MG_UPLOAD event is sent.
 // Return number of uploaded files.
-int mg_upload(struct mg_connection *conn, const char *destination_dir);
+int kyt_mg_upload(struct kyt_mg_connection *conn, const char *destination_dir);
 
 
 // Convenience function -- create detached thread.
 // Return: 0 on success, non-0 on error.
-typedef void * (*mg_thread_func_t)(void *);
-int mg_start_thread(mg_thread_func_t f, void *p);
+typedef void * (*kyt_mg_thread_func_t)(void *);
+int kyt_mg_start_thread(kyt_mg_thread_func_t f, void *p);
 
 
 // Return builtin mime type for the given file name.
 // For unrecognized extensions, "text/plain" is returned.
-const char *mg_get_builtin_mime_type(const char *file_name);
+const char *kyt_mg_get_builtin_mime_type(const char *file_name);
 
 
 // Return Mongoose version.
-const char *mg_version(void);
+const char *kyt_mg_version(void);
 
 // URL-decode input buffer into destination buffer.
 // 0-terminate the destination buffer.
@@ -339,7 +339,7 @@ const char *mg_version(void);
 // uses '+' as character for space, see RFC 1866 section 8.2.1
 // http://ftp.ics.uci.edu/pub/ietf/html/rfc1866.txt
 // Return: length of the decoded data, or -1 if dst buffer is too small.
-int mg_url_decode(const char *src, int src_len, char *dst,
+int kyt_mg_url_decode(const char *src, int src_len, char *dst,
                   int dst_len, int is_form_url_encoded);
 
 // MD5 hash given strings.
@@ -347,8 +347,8 @@ int mg_url_decode(const char *src, int src_len, char *dst,
 // ASCIIz strings. When function returns, buf will contain human-readable
 // MD5 hash. Example:
 //   char buf[33];
-//   mg_md5(buf, "aa", "bb", NULL);
-char *mg_md5(char buf[33], ...);
+//   kyt_mg_md5(buf, "aa", "bb", NULL);
+char *kyt_mg_md5(char buf[33], ...);
 
 
 #ifdef __cplusplus
