@@ -480,11 +480,11 @@ static const char *config_options[] = {
   NULL
 };
 
-struct kyt_mg_context {
+struct mg_context {
   volatile int stop_flag;         // Should we stop event loop
   SSL_CTX *ssl_ctx;               // SSL context
   char *config[NUM_OPTIONS];      // Mongoose configuration parameters
-  struct kyt_mg_callbacks callbacks;  // User-defined callback function
+  struct mg_callbacks callbacks;  // User-defined callback function
   void *user_data;                // User-defined data
 
   struct socket *listening_sockets;
@@ -501,9 +501,9 @@ struct kyt_mg_context {
   pthread_cond_t sq_empty;   // Signaled when socket is consumed
 };
 
-struct kyt_mg_connection {
-  struct kyt_mg_request_info request_info;
-  struct kyt_mg_context *ctx;
+struct mg_connection {
+  struct mg_request_info request_info;
+  struct mg_context *ctx;
   SSL *ssl;                   // SSL descriptor
   SSL_CTX *client_ssl_ctx;    // SSL context for client connections
   struct socket client;       // Connected client
@@ -523,11 +523,11 @@ struct kyt_mg_connection {
   int64_t last_throttle_bytes;// Bytes sent this second
 };
 
-const char **kyt_mg_get_valid_option_names(void) {
+const char **mg_get_valid_option_names(void) {
   return config_options;
 }
 
-static int is_file_in_memory(struct kyt_mg_connection *conn, const char *path,
+static int is_file_in_memory(struct mg_connection *conn, const char *path,
                              struct file *filep) {
   size_t size = 0;
   if ((filep->membuf = conn->ctx->callbacks.open_file == NULL ? NULL :
@@ -543,7 +543,7 @@ static int is_file_opened(const struct file *filep) {
   return filep->membuf != NULL || filep->fp != NULL;
 }
 
-static int mg_fopen(struct kyt_mg_connection *conn, const char *path,
+static int mg_fopen(struct mg_connection *conn, const char *path,
                     const char *mode, struct file *filep) {
   if (!is_file_in_memory(conn, path, filep)) {
 #ifdef _WIN32
@@ -576,7 +576,7 @@ static int get_option_index(const char *name) {
   return -1;
 }
 
-const char *kyt_mg_get_option(const struct kyt_mg_context *ctx, const char *name) {
+const char *mg_get_option(const struct mg_context *ctx, const char *name) {
   int i;
   if ((i = get_option_index(name)) == -1) {
     return NULL;
@@ -605,11 +605,11 @@ static void sockaddr_to_string(char *buf, size_t len,
 #endif
 }
 
-static void cry(struct kyt_mg_connection *conn,
+static void cry(struct mg_connection *conn,
                 PRINTF_FORMAT_STRING(const char *fmt), ...) PRINTF_ARGS(2, 3);
 
 // Print error message to the opened error log stream.
-static void cry(struct kyt_mg_connection *conn, const char *fmt, ...) {
+static void cry(struct mg_connection *conn, const char *fmt, ...) {
   char buf[MG_BUF_LEN], src_addr[20];
   va_list ap;
   FILE *fp;
@@ -650,17 +650,17 @@ static void cry(struct kyt_mg_connection *conn, const char *fmt, ...) {
 
 // Return fake connection structure. Used for logging, if connection
 // is not applicable at the moment of logging.
-static struct kyt_mg_connection *fc(struct kyt_mg_context *ctx) {
-  static struct kyt_mg_connection fake_connection;
+static struct mg_connection *fc(struct mg_context *ctx) {
+  static struct mg_connection fake_connection;
   fake_connection.ctx = ctx;
   return &fake_connection;
 }
 
-const char *kyt_mg_version(void) {
+const char *mg_version(void) {
   return MONGOOSE_VERSION;
 }
 
-struct kyt_mg_request_info *kyt_mg_get_request_info(struct kyt_mg_connection *conn) {
+struct mg_request_info *mg_get_request_info(struct mg_connection *conn) {
   return &conn->request_info;
 }
 
@@ -726,7 +726,7 @@ static const char *mg_strcasestr(const char *big_str, const char *small_str) {
 // that is larger than a supplied buffer.
 // Thanks to Adam Zeldis to pointing snprintf()-caused vulnerability
 // in his audit report.
-static int mg_vsnprintf(struct kyt_mg_connection *conn, char *buf, size_t buflen,
+static int mg_vsnprintf(struct mg_connection *conn, char *buf, size_t buflen,
                         const char *fmt, va_list ap) {
   int n;
 
@@ -748,11 +748,11 @@ static int mg_vsnprintf(struct kyt_mg_connection *conn, char *buf, size_t buflen
   return n;
 }
 
-static int mg_snprintf(struct kyt_mg_connection *conn, char *buf, size_t buflen,
+static int mg_snprintf(struct mg_connection *conn, char *buf, size_t buflen,
                        PRINTF_FORMAT_STRING(const char *fmt), ...)
   PRINTF_ARGS(4, 5);
 
-static int mg_snprintf(struct kyt_mg_connection *conn, char *buf, size_t buflen,
+static int mg_snprintf(struct mg_connection *conn, char *buf, size_t buflen,
                        const char *fmt, ...) {
   va_list ap;
   int n;
@@ -818,7 +818,7 @@ static char *skip(char **buf, const char *delimiters) {
 
 
 // Return HTTP header value, or NULL if not found.
-static const char *get_header(const struct kyt_mg_request_info *ri,
+static const char *get_header(const struct mg_request_info *ri,
                               const char *name) {
   int i;
 
@@ -829,7 +829,7 @@ static const char *get_header(const struct kyt_mg_request_info *ri,
   return NULL;
 }
 
-const char *kyt_mg_get_header(const struct kyt_mg_connection *conn, const char *name) {
+const char *mg_get_header(const struct mg_connection *conn, const char *name) {
   return get_header(&conn->request_info, name);
 }
 
@@ -915,9 +915,9 @@ static int match_prefix(const char *pattern, size_t pattern_len, const char *str
 // HTTP 1.1 assumes keep alive if "Connection:" header is not set
 // This function must tolerate situations when connection info is not
 // set up, for example if request parsing failed.
-static int should_keep_alive(const struct kyt_mg_connection *conn) {
+static int should_keep_alive(const struct mg_connection *conn) {
   const char *http_version = conn->request_info.http_version;
-  const char *header = kyt_mg_get_header(conn, "Connection");
+  const char *header = mg_get_header(conn, "Connection");
   if (conn->must_close ||
       conn->status_code == 401 ||
       mg_strcasecmp(conn->ctx->config[ENABLE_KEEP_ALIVE], "yes") != 0 ||
@@ -928,16 +928,16 @@ static int should_keep_alive(const struct kyt_mg_connection *conn) {
   return 1;
 }
 
-static const char *suggest_connection_header(const struct kyt_mg_connection *conn) {
+static const char *suggest_connection_header(const struct mg_connection *conn) {
   return should_keep_alive(conn) ? "keep-alive" : "close";
 }
 
-static void send_http_error(struct kyt_mg_connection *, int, const char *,
+static void send_http_error(struct mg_connection *, int, const char *,
                             PRINTF_FORMAT_STRING(const char *fmt), ...)
   PRINTF_ARGS(4, 5);
 
 
-static void send_http_error(struct kyt_mg_connection *conn, int status,
+static void send_http_error(struct mg_connection *conn, int status,
                             const char *reason, const char *fmt, ...) {
   char buf[MG_BUF_LEN];
   va_list ap;
@@ -959,11 +959,11 @@ static void send_http_error(struct kyt_mg_connection *conn, int status,
     }
     DEBUG_TRACE(("[%s]", buf));
 
-    kyt_mg_printf(conn, "HTTP/1.1 %d %s\r\n"
+    mg_printf(conn, "HTTP/1.1 %d %s\r\n"
               "Content-Length: %d\r\n"
               "Connection: %s\r\n\r\n", status, reason, len,
               suggest_connection_header(conn));
-    conn->num_bytes_sent += kyt_mg_printf(conn, "%s", buf);
+    conn->num_bytes_sent += mg_printf(conn, "%s", buf);
   }
 }
 
@@ -1114,7 +1114,7 @@ static int path_cannot_disclose_cgi(const char *path) {
   return isalnum(last) || strchr(allowed_last_characters, last) != NULL;
 }
 
-static int mg_stat(struct kyt_mg_connection *conn, const char *path,
+static int mg_stat(struct mg_connection *conn, const char *path,
                    struct file *filep) {
   wchar_t wbuf[PATH_MAX];
   WIN32_FILE_ATTRIBUTE_DATA info;
@@ -1267,7 +1267,7 @@ static SOCKET open_socket(int af, int type, int protocol)
 	return WSASocket(af, type, protocol, NULL, 0, WSA_FLAG_NO_HANDLE_INHERIT);
 }
 
-int kyt_mg_start_thread(kyt_mg_thread_func_t f, void *p) {
+int mg_start_thread(mg_thread_func_t f, void *p) {
   return (long)_beginthread((void (__cdecl *)(void *)) f, 0, p) == -1L ? -1 : 0;
 }
 
@@ -1293,7 +1293,7 @@ static void trim_trailing_whitespaces(char *s) {
   }
 }
 
-static pid_t spawn_process(struct kyt_mg_connection *conn, const char *prog,
+static pid_t spawn_process(struct mg_connection *conn, const char *prog,
                            char *envblk, char *envp[], int fd_stdin,
                            int fd_stdout, const char *dir) {
   HANDLE me;
@@ -1375,7 +1375,7 @@ static int set_non_blocking_mode(SOCKET sock) {
 }
 
 #else
-static int mg_stat(struct kyt_mg_connection *conn, const char *path,
+static int mg_stat(struct mg_connection *conn, const char *path,
                    struct file *filep) {
   struct stat st;
 
@@ -1394,7 +1394,7 @@ static void set_close_on_exec(int fd) {
   fcntl(fd, F_SETFD, FD_CLOEXEC);
 }
 
-int kyt_mg_start_thread(kyt_mg_thread_func_t func, void *param) {
+int mg_start_thread(mg_thread_func_t func, void *param) {
   pthread_t thread_id;
   pthread_attr_t attr;
   int result;
@@ -1402,7 +1402,7 @@ int kyt_mg_start_thread(kyt_mg_thread_func_t func, void *param) {
   (void) pthread_attr_init(&attr);
   (void) pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
   // TODO(lsm): figure out why mongoose dies on Linux if next line is enabled
-  // (void) pthread_attr_setstacksize(&attr, sizeof(struct kyt_mg_connection) * 5);
+  // (void) pthread_attr_setstacksize(&attr, sizeof(struct mg_connection) * 5);
 
   result = pthread_create(&thread_id, &attr, func, param);
   pthread_attr_destroy(&attr);
@@ -1411,7 +1411,7 @@ int kyt_mg_start_thread(kyt_mg_thread_func_t func, void *param) {
 }
 
 #ifndef NO_CGI
-static pid_t spawn_process(struct kyt_mg_connection *conn, const char *prog,
+static pid_t spawn_process(struct mg_connection *conn, const char *prog,
                            char *envblk, char *envp[], int fd_stdin,
                            int fd_stdout, const char *dir) {
   pid_t pid;
@@ -1510,7 +1510,7 @@ static int64_t push(FILE *fp, SOCKET sock, SSL *ssl, const char *buf,
 
 // Read from IO channel - opened file descriptor, socket, or SSL descriptor.
 // Return negative value on error, or number of bytes read on success.
-static int pull(FILE *fp, struct kyt_mg_connection *conn, char *buf, int len) {
+static int pull(FILE *fp, struct mg_connection *conn, char *buf, int len) {
   int nread;
 
   if (fp != NULL) {
@@ -1529,7 +1529,7 @@ static int pull(FILE *fp, struct kyt_mg_connection *conn, char *buf, int len) {
   return conn->ctx->stop_flag ? -1 : nread;
 }
 
-static int pull_all(FILE *fp, struct kyt_mg_connection *conn, char *buf, int len) {
+static int pull_all(FILE *fp, struct mg_connection *conn, char *buf, int len) {
   int n, nread = 0;
 
   while (len > 0) {
@@ -1549,7 +1549,7 @@ static int pull_all(FILE *fp, struct kyt_mg_connection *conn, char *buf, int len
   return nread;
 }
 
-int kyt_mg_read(struct kyt_mg_connection *conn, void *buf, size_t len) {
+int mg_read(struct mg_connection *conn, void *buf, size_t len) {
   int n, nread;
   size_t buffered_len;
   const char *body;
@@ -1583,7 +1583,7 @@ int kyt_mg_read(struct kyt_mg_connection *conn, void *buf, size_t len) {
   return nread;
 }
 
-int kyt_mg_write(struct kyt_mg_connection *conn, const void *buf, size_t len) {
+int mg_write(struct mg_connection *conn, const void *buf, size_t len) {
   time_t now;
   int64_t n, total, allowed;
 
@@ -1648,12 +1648,12 @@ static int alloc_vprintf(char **buf, size_t size, const char *fmt, va_list ap) {
   return len;
 }
 
-int mg_vprintf(struct kyt_mg_connection *conn, const char *fmt, va_list ap) {
+int mg_vprintf(struct mg_connection *conn, const char *fmt, va_list ap) {
   char mem[MG_BUF_LEN], *buf = mem;
   int len;
 
   if ((len = alloc_vprintf(&buf, sizeof(mem), fmt, ap)) > 0) {
-    len = kyt_mg_write(conn, buf, (size_t) len);
+    len = mg_write(conn, buf, (size_t) len);
   }
   if (buf != mem && buf != NULL) {
     free(buf);
@@ -1662,13 +1662,13 @@ int mg_vprintf(struct kyt_mg_connection *conn, const char *fmt, va_list ap) {
   return len;
 }
 
-int kyt_mg_printf(struct kyt_mg_connection *conn, const char *fmt, ...) {
+int mg_printf(struct mg_connection *conn, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   return mg_vprintf(conn, fmt, ap);
 }
 
-int kyt_mg_url_decode(const char *src, int src_len, char *dst,
+int mg_url_decode(const char *src, int src_len, char *dst,
                   int dst_len, int is_form_url_encoded) {
   int i, j, a, b;
 #define HEXTOI(x) (isdigit(x) ? x - '0' : x - 'W')
@@ -1693,7 +1693,7 @@ int kyt_mg_url_decode(const char *src, int src_len, char *dst,
   return i >= src_len ? j : -1;
 }
 
-int kyt_mg_get_var(const char *data, size_t data_len, const char *name,
+int mg_get_var(const char *data, size_t data_len, const char *name,
                char *dst, size_t dst_len) {
   const char *p, *e, *s;
   size_t name_len;
@@ -1726,7 +1726,7 @@ int kyt_mg_get_var(const char *data, size_t data_len, const char *name,
         assert(s >= p);
 
         // Decode variable into destination buffer
-        len = kyt_mg_url_decode(p, (int)(s - p), dst, (int)dst_len, 1);
+        len = mg_url_decode(p, (int)(s - p), dst, (int)dst_len, 1);
 
         // Redirect error code from -1 to -2 (destination buffer too small).
         if (len == -1) {
@@ -1740,7 +1740,7 @@ int kyt_mg_get_var(const char *data, size_t data_len, const char *name,
   return len;
 }
 
-int kyt_mg_get_cookie(const char *cookie_header, const char *var_name,
+int mg_get_cookie(const char *cookie_header, const char *var_name,
                   char *dst, size_t dst_size) {
   const char *s, *p, *end;
   int name_len, len = -1;
@@ -1779,7 +1779,7 @@ int kyt_mg_get_cookie(const char *cookie_header, const char *var_name,
   return len;
 }
 
-static void convert_uri_to_file_name(struct kyt_mg_connection *conn, char *buf,
+static void convert_uri_to_file_name(struct mg_connection *conn, char *buf,
                                      size_t buf_len, struct file *filep) {
   struct vec a, b;
   const char *rewrite, *uri = conn->request_info.uri;
@@ -1971,7 +1971,7 @@ static const struct {
   {NULL,  0, NULL}
 };
 
-const char *kyt_mg_get_builtin_mime_type(const char *path) {
+const char *mg_get_builtin_mime_type(const char *path) {
   const char *ext;
   size_t i, path_len;
 
@@ -1990,7 +1990,7 @@ const char *kyt_mg_get_builtin_mime_type(const char *path) {
 
 // Look at the "path" extension and figure what mime type it has.
 // Store mime type in the vector.
-static void get_mime_type(struct kyt_mg_context *ctx, const char *path,
+static void get_mime_type(struct mg_context *ctx, const char *path,
                           struct vec *vec) {
   struct vec ext_vec, mime_vec;
   const char *list, *ext;
@@ -2010,7 +2010,7 @@ static void get_mime_type(struct kyt_mg_context *ctx, const char *path,
     }
   }
 
-  vec->ptr = kyt_mg_get_builtin_mime_type(path);
+  vec->ptr = mg_get_builtin_mime_type(path);
   vec->len = strlen(vec->ptr);
 }
 
@@ -2222,7 +2222,7 @@ static void bin2str(char *to, const unsigned char *p, size_t len) {
 }
 
 // Return stringified MD5 hash for list of strings. Buffer must be 33 bytes.
-char *kyt_mg_md5(char buf[33], ...) {
+char *mg_md5(char buf[33], ...) {
   unsigned char hash[16];
   const char *p;
   va_list ap;
@@ -2262,8 +2262,8 @@ static int check_password(const char *method, const char *ha1, const char *uri,
     return 0;
   }
 
-  kyt_mg_md5(ha2, method, ":", uri, NULL);
-  kyt_mg_md5(expected_response, ha1, ":", nonce, ":", nc,
+  mg_md5(ha2, method, ":", uri, NULL);
+  mg_md5(expected_response, ha1, ":", nonce, ":", nc,
       ":", cnonce, ":", qop, ":", ha2, NULL);
 
   return mg_strcasecmp(response, expected_response) == 0;
@@ -2271,7 +2271,7 @@ static int check_password(const char *method, const char *ha1, const char *uri,
 
 // Use the global passwords file, if specified by auth_gpass option,
 // or search for .htpasswd in the requested directory.
-static void open_auth_file(struct kyt_mg_connection *conn, const char *path,
+static void open_auth_file(struct mg_connection *conn, const char *path,
                            struct file *filep) {
   char name[PATH_MAX];
   const char *p, *e, *gpass = conn->ctx->config[GLOBAL_PASSWORDS_FILE];
@@ -2305,13 +2305,13 @@ struct ah {
 };
 
 // Return 1 on success. Always initializes the ah structure.
-static int parse_auth_header(struct kyt_mg_connection *conn, char *buf,
+static int parse_auth_header(struct mg_connection *conn, char *buf,
                              size_t buf_size, struct ah *ah) {
   char *name, *value, *s;
   const char *auth_header;
 
   (void) memset(ah, 0, sizeof(*ah));
-  if ((auth_header = kyt_mg_get_header(conn, "Authorization")) == NULL ||
+  if ((auth_header = mg_get_header(conn, "Authorization")) == NULL ||
       mg_strncasecmp(auth_header, "Digest ", 7) != 0) {
     return 0;
   }
@@ -2387,7 +2387,7 @@ static char *mg_fgets(char *buf, size_t size, struct file *filep, char **p) {
 }
 
 // Authorize against the opened passwords file. Return 1 if authorized.
-static int authorize(struct kyt_mg_connection *conn, struct file *filep) {
+static int authorize(struct mg_connection *conn, struct file *filep) {
   struct ah ah;
   char line[256], f_user[256], ha1[256], f_domain[256], buf[MG_BUF_LEN], *p;
 
@@ -2412,7 +2412,7 @@ static int authorize(struct kyt_mg_connection *conn, struct file *filep) {
 }
 
 // Return 1 if request is authorised, 0 otherwise.
-static int check_authorization(struct kyt_mg_connection *conn, const char *path) {
+static int check_authorization(struct mg_connection *conn, const char *path) {
   char fname[PATH_MAX];
   struct vec uri_vec, filename_vec;
   const char *list;
@@ -2443,9 +2443,9 @@ static int check_authorization(struct kyt_mg_connection *conn, const char *path)
   return authorized;
 }
 
-static void send_authorization_request(struct kyt_mg_connection *conn) {
+static void send_authorization_request(struct mg_connection *conn) {
   conn->status_code = 401;
-  kyt_mg_printf(conn,
+  mg_printf(conn,
             "HTTP/1.1 401 Unauthorized\r\n"
             "Content-Length: 0\r\n"
             "WWW-Authenticate: Digest qop=\"auth\", "
@@ -2454,7 +2454,7 @@ static void send_authorization_request(struct kyt_mg_connection *conn) {
             (unsigned long) time(NULL));
 }
 
-static int is_authorized_for_put(struct kyt_mg_connection *conn) {
+static int is_authorized_for_put(struct mg_connection *conn) {
   struct file file = STRUCT_FILE_INITIALIZER;
   const char *passfile = conn->ctx->config[PUT_DELETE_PASSWORDS_FILE];
   int ret = 0;
@@ -2467,7 +2467,7 @@ static int is_authorized_for_put(struct kyt_mg_connection *conn) {
   return ret;
 }
 
-int kyt_mg_modify_passwords_file(const char *fname, const char *domain,
+int mg_modify_passwords_file(const char *fname, const char *domain,
                              const char *user, const char *pass) {
   int found;
   char line[512], u[512], d[512], ha1[33], tmp[PATH_MAX];
@@ -2505,7 +2505,7 @@ int kyt_mg_modify_passwords_file(const char *fname, const char *domain,
     if (!strcmp(u, user) && !strcmp(d, domain)) {
       found++;
       if (pass != NULL) {
-        kyt_mg_md5(ha1, user, ":", domain, ":", pass, NULL);
+        mg_md5(ha1, user, ":", domain, ":", pass, NULL);
         fprintf(fp2, "%s:%s:%s\n", user, domain, ha1);
       }
     } else {
@@ -2515,7 +2515,7 @@ int kyt_mg_modify_passwords_file(const char *fname, const char *domain,
 
   // If new user, just add it
   if (!found && pass != NULL) {
-    kyt_mg_md5(ha1, user, ":", domain, ":", pass, NULL);
+    mg_md5(ha1, user, ":", domain, ":", pass, NULL);
     fprintf(fp2, "%s:%s:%s\n", user, domain, ha1);
   }
 
@@ -2531,7 +2531,7 @@ int kyt_mg_modify_passwords_file(const char *fname, const char *domain,
 }
 
 struct de {
-  struct kyt_mg_connection *conn;
+  struct mg_connection *conn;
   char *file_name;
   struct file file;
 };
@@ -2580,7 +2580,7 @@ static void print_dir_entry(struct de *de) {
   strftime(mod, sizeof(mod), "%d-%b-%Y %H:%M",
            localtime(&de->file.modification_time));
   url_encode(de->file_name, href, sizeof(href));
-  de->conn->num_bytes_sent += kyt_mg_printf(de->conn,
+  de->conn->num_bytes_sent += mg_printf(de->conn,
       "<tr><td><a href=\"%s%s%s\">%s%s</a></td>"
       "<td>&nbsp;%s</td><td>&nbsp;&nbsp;%s</td></tr>\n",
       de->conn->request_info.uri, href, de->file.is_directory ? "/" : "",
@@ -2617,14 +2617,14 @@ static int WINCDECL compare_dir_entries(const void *p1, const void *p2) {
   return query_string[1] == 'd' ? -cmp_result : cmp_result;
 }
 
-static int must_hide_file(struct kyt_mg_connection *conn, const char *path) {
+static int must_hide_file(struct mg_connection *conn, const char *path) {
   const char *pw_pattern = "**" PASSWORDS_FILE_NAME "$";
   const char *pattern = conn->ctx->config[HIDE_FILES];
   return match_prefix(pw_pattern, strlen(pw_pattern), path) > 0 ||
     (pattern != NULL && match_prefix(pattern, strlen(pattern), path) > 0);
 }
 
-static int scan_directory(struct kyt_mg_connection *conn, const char *dir,
+static int scan_directory(struct mg_connection *conn, const char *dir,
                           void *data, void (*cb)(struct de *, void *)) {
   char path[PATH_MAX];
   struct dirent *dp;
@@ -2696,7 +2696,7 @@ static void dir_scan_callback(struct de *de, void *data) {
   }
 }
 
-static void handle_directory_request(struct kyt_mg_connection *conn,
+static void handle_directory_request(struct mg_connection *conn,
                                      const char *dir) {
   int i, sort_direction;
   struct dir_scan_data data = { NULL, 0, 128 };
@@ -2711,12 +2711,12 @@ static void handle_directory_request(struct kyt_mg_connection *conn,
     conn->request_info.query_string[1] == 'd' ? 'a' : 'd';
 
   conn->must_close = 1;
-  kyt_mg_printf(conn, "%s",
+  mg_printf(conn, "%s",
             "HTTP/1.1 200 OK\r\n"
             "Connection: close\r\n"
             "Content-Type: text/html; charset=utf-8\r\n\r\n");
 
-  conn->num_bytes_sent += kyt_mg_printf(conn,
+  conn->num_bytes_sent += mg_printf(conn,
       "<html><head><title>Index of %s</title>"
       "<style>th {text-align: left;}</style></head>"
       "<body><h1>Index of %s</h1><pre><table cellpadding=\"0\">"
@@ -2728,7 +2728,7 @@ static void handle_directory_request(struct kyt_mg_connection *conn,
       sort_direction, sort_direction, sort_direction);
 
   // Print first entry - link to a parent directory
-  conn->num_bytes_sent += kyt_mg_printf(conn,
+  conn->num_bytes_sent += mg_printf(conn,
       "<tr><td><a href=\"%s%s\">%s</a></td>"
       "<td>&nbsp;%s</td><td>&nbsp;&nbsp;%s</td></tr>\n",
       conn->request_info.uri, "..", "Parent directory", "-", "-");
@@ -2742,12 +2742,12 @@ static void handle_directory_request(struct kyt_mg_connection *conn,
   }
   free(data.entries);
 
-  conn->num_bytes_sent += kyt_mg_printf(conn, "%s", "</table></body></html>");
+  conn->num_bytes_sent += mg_printf(conn, "%s", "</table></body></html>");
   conn->status_code = 200;
 }
 
 // Send len bytes from the opened file to the client.
-static void send_file_data(struct kyt_mg_connection *conn, struct file *filep,
+static void send_file_data(struct mg_connection *conn, struct file *filep,
                            int64_t offset, int64_t len) {
   char buf[MG_BUF_LEN];
   int to_read, num_read, num_written;
@@ -2759,7 +2759,7 @@ static void send_file_data(struct kyt_mg_connection *conn, struct file *filep,
     if (len > filep->size - offset) {
       len = filep->size - offset;
     }
-    kyt_mg_write(conn, filep->membuf + offset, (size_t) len);
+    mg_write(conn, filep->membuf + offset, (size_t) len);
   } else if (len > 0 && filep->fp != NULL) {
     fseeko(filep->fp, offset, SEEK_SET);
     while (len > 0) {
@@ -2775,7 +2775,7 @@ static void send_file_data(struct kyt_mg_connection *conn, struct file *filep,
       }
 
       // Send read bytes to the client, exit the loop on error
-      if ((num_written = kyt_mg_write(conn, buf, (size_t) num_read)) != num_read) {
+      if ((num_written = mg_write(conn, buf, (size_t) num_read)) != num_read) {
         break;
       }
 
@@ -2808,7 +2808,7 @@ static void fclose_on_exec(struct file *filep) {
   }
 }
 
-static void handle_file_request(struct kyt_mg_connection *conn, const char *path,
+static void handle_file_request(struct mg_connection *conn, const char *path,
                                 struct file *filep) {
   char date[64], lm[64], etag[64], range[64];
   const char *msg = "OK", *hdr;
@@ -2831,7 +2831,7 @@ static void handle_file_request(struct kyt_mg_connection *conn, const char *path
 
   // If Range: header specified, act accordingly
   r1 = r2 = 0;
-  hdr = kyt_mg_get_header(conn, "Range");
+  hdr = mg_get_header(conn, "Range");
   if (hdr != NULL && (n = parse_range_header(hdr, &r1, &r2)) > 0 &&
       r1 >= 0 && r2 >= 0) {
     conn->status_code = 206;
@@ -2850,7 +2850,7 @@ static void handle_file_request(struct kyt_mg_connection *conn, const char *path
   gmt_time_string(lm, sizeof(lm), &filep->modification_time);
   construct_etag(etag, sizeof(etag), filep);
 
-  (void) kyt_mg_printf(conn,
+  (void) mg_printf(conn,
       "HTTP/1.1 %d %s\r\n"
       "Date: %s\r\n"
       "Last-Modified: %s\r\n"
@@ -2869,7 +2869,7 @@ static void handle_file_request(struct kyt_mg_connection *conn, const char *path
   mg_fclose(filep);
 }
 
-void kyt_mg_send_file(struct kyt_mg_connection *conn, const char *path) {
+void mg_send_file(struct mg_connection *conn, const char *path) {
   struct file file = STRUCT_FILE_INITIALIZER;
   if (mg_stat(conn, path, &file)) {
     handle_file_request(conn, path, &file);
@@ -2881,7 +2881,7 @@ void kyt_mg_send_file(struct kyt_mg_connection *conn, const char *path) {
 
 // Parse HTTP headers from the given buffer, advance buffer to the point
 // where parsing stopped.
-static void parse_http_headers(char **buf, struct kyt_mg_request_info *ri) {
+static void parse_http_headers(char **buf, struct mg_request_info *ri) {
   int i;
 
   for (i = 0; i < (int) ARRAY_SIZE(ri->http_headers); i++) {
@@ -2900,10 +2900,10 @@ static int is_valid_http_method(const char *method) {
     !strcmp(method, "OPTIONS") || !strcmp(method, "PROPFIND");
 }
 
-// Parse HTTP request, fill in kyt_mg_request_info structure.
+// Parse HTTP request, fill in mg_request_info structure.
 // This function modifies the buffer by NUL-terminating
 // HTTP request components, header names and header values.
-static int parse_http_message(char *buf, int len, struct kyt_mg_request_info *ri) {
+static int parse_http_message(char *buf, int len, struct mg_request_info *ri) {
   int is_request, request_length = get_request_len(buf, len);
   if (request_length > 0) {
     // Reset attributes. DO NOT TOUCH is_ssl, remote_ip, remote_port
@@ -2938,7 +2938,7 @@ static int parse_http_message(char *buf, int len, struct kyt_mg_request_info *ri
 // buffer (which marks the end of HTTP request). Buffer buf may already
 // have some data. The length of the data is stored in nread.
 // Upon every read operation, increase nread by the number of bytes read.
-static int read_request(FILE *fp, struct kyt_mg_connection *conn,
+static int read_request(FILE *fp, struct mg_connection *conn,
                         char *buf, int bufsiz, int *nread) {
   int request_len, n = 0;
 
@@ -2956,7 +2956,7 @@ static int read_request(FILE *fp, struct kyt_mg_connection *conn,
 // For given directory path, substitute it to valid index file.
 // Return 0 if index file has been found, -1 if not found.
 // If the file is found, it's stats is returned in stp.
-static int substitute_index_file(struct kyt_mg_connection *conn, char *path,
+static int substitute_index_file(struct mg_connection *conn, char *path,
                                  size_t path_len, struct file *filep) {
   const char *list = conn->ctx->config[INDEX_FILES];
   struct file file = STRUCT_FILE_INITIALIZER;
@@ -3001,23 +3001,23 @@ static int substitute_index_file(struct kyt_mg_connection *conn, char *path,
 }
 
 // Return True if we should reply 304 Not Modified.
-static int is_not_modified(const struct kyt_mg_connection *conn,
+static int is_not_modified(const struct mg_connection *conn,
                            const struct file *filep) {
   char etag[64];
-  const char *ims = kyt_mg_get_header(conn, "If-Modified-Since");
-  const char *inm = kyt_mg_get_header(conn, "If-None-Match");
+  const char *ims = mg_get_header(conn, "If-Modified-Since");
+  const char *inm = mg_get_header(conn, "If-None-Match");
   construct_etag(etag, sizeof(etag), filep);
   return (inm != NULL && !mg_strcasecmp(etag, inm)) ||
     (ims != NULL && filep->modification_time <= parse_date_string(ims));
 }
 
-static int forward_body_data(struct kyt_mg_connection *conn, FILE *fp,
+static int forward_body_data(struct mg_connection *conn, FILE *fp,
                              SOCKET sock, SSL *ssl) {
   const char *expect, *body;
   char buf[MG_BUF_LEN];
   int to_read, nread, buffered_len, success = 0;
 
-  expect = kyt_mg_get_header(conn, "Expect");
+  expect = mg_get_header(conn, "Expect");
   assert(fp != NULL);
 
   if (conn->content_len == -1) {
@@ -3026,7 +3026,7 @@ static int forward_body_data(struct kyt_mg_connection *conn, FILE *fp,
     send_http_error(conn, 417, "Expectation Failed", "%s", "");
   } else {
     if (expect != NULL) {
-      (void) kyt_mg_printf(conn, "%s", "HTTP/1.1 100 Continue\r\n\r\n");
+      (void) mg_printf(conn, "%s", "HTTP/1.1 100 Continue\r\n\r\n");
     }
 
     body = conn->buf + conn->request_len + conn->consumed_content;
@@ -3078,7 +3078,7 @@ static int forward_body_data(struct kyt_mg_connection *conn, FILE *fp,
 // We satisfy both worlds: we create an envp array (which is vars), all
 // entries are actually pointers inside buf.
 struct cgi_env_block {
-  struct kyt_mg_connection *conn;
+  struct mg_connection *conn;
   char buf[CGI_ENVIRONMENT_SIZE]; // Environment buffer
   int len; // Space taken
   char *vars[MAX_CGI_ENVIR_VARS]; // char **envp
@@ -3122,7 +3122,7 @@ static char *addenv(struct cgi_env_block *block, const char *fmt, ...) {
   return added;
 }
 
-static void prepare_cgi_environment(struct kyt_mg_connection *conn,
+static void prepare_cgi_environment(struct mg_connection *conn,
                                     const char *prog,
                                     struct cgi_env_block *blk) {
   const char *s, *slash;
@@ -3163,13 +3163,13 @@ static void prepare_cgi_environment(struct kyt_mg_connection *conn,
   addenv(blk, "PATH_TRANSLATED=%s", prog);
   addenv(blk, "HTTPS=%s", conn->ssl == NULL ? "off" : "on");
 
-  if ((s = kyt_mg_get_header(conn, "Content-Type")) != NULL)
+  if ((s = mg_get_header(conn, "Content-Type")) != NULL)
     addenv(blk, "CONTENT_TYPE=%s", s);
 
   if (conn->request_info.query_string != NULL)
     addenv(blk, "QUERY_STRING=%s", conn->request_info.query_string);
 
-  if ((s = kyt_mg_get_header(conn, "Content-Length")) != NULL)
+  if ((s = mg_get_header(conn, "Content-Length")) != NULL)
     addenv(blk, "CONTENT_LENGTH=%s", s);
 
   if ((s = getenv("PATH")) != NULL)
@@ -3236,11 +3236,11 @@ static void prepare_cgi_environment(struct kyt_mg_connection *conn,
   assert(blk->len < (int) sizeof(blk->buf));
 }
 
-static void handle_cgi_request(struct kyt_mg_connection *conn, const char *prog) {
+static void handle_cgi_request(struct mg_connection *conn, const char *prog) {
   int headers_len, data_len, i, fd_stdin[2], fd_stdout[2];
   const char *status, *status_text;
   char buf[16384], *pbuf, dir[PATH_MAX], *p;
-  struct kyt_mg_request_info ri;
+  struct mg_request_info ri;
   struct cgi_env_block blk;
   FILE *in, *out;
   struct file fout = STRUCT_FILE_INITIALIZER;
@@ -3339,18 +3339,18 @@ static void handle_cgi_request(struct kyt_mg_connection *conn, const char *prog)
       !mg_strcasecmp(get_header(&ri, "Connection"), "keep-alive")) {
     conn->must_close = 1;
   }
-  (void) kyt_mg_printf(conn, "HTTP/1.1 %d %s\r\n", conn->status_code,
+  (void) mg_printf(conn, "HTTP/1.1 %d %s\r\n", conn->status_code,
                    status_text);
 
   // Send headers
   for (i = 0; i < ri.num_headers; i++) {
-    kyt_mg_printf(conn, "%s: %s\r\n",
+    mg_printf(conn, "%s: %s\r\n",
               ri.http_headers[i].name, ri.http_headers[i].value);
   }
-  kyt_mg_write(conn, "\r\n", 2);
+  mg_write(conn, "\r\n", 2);
 
   // Send chunk of data that may have been read after the headers
-  conn->num_bytes_sent += kyt_mg_write(conn, buf + headers_len,
+  conn->num_bytes_sent += mg_write(conn, buf + headers_len,
                                    (size_t)(data_len - headers_len));
 
   // Read the rest of CGI output and send to the client
@@ -3384,7 +3384,7 @@ done:
 // For a given PUT path, create all intermediate subdirectories
 // for given path. Return 0 if the path itself is a directory,
 // or -1 on error, 1 if OK.
-static int put_dir(struct kyt_mg_connection *conn, const char *path) {
+static int put_dir(struct mg_connection *conn, const char *path) {
   char buf[PATH_MAX];
   const char *s, *p;
   struct file file = STRUCT_FILE_INITIALIZER;
@@ -3416,7 +3416,7 @@ static int put_dir(struct kyt_mg_connection *conn, const char *path) {
   return res;
 }
 
-static void put_file(struct kyt_mg_connection *conn, const char *path) {
+static void put_file(struct mg_connection *conn, const char *path) {
   struct file file = STRUCT_FILE_INITIALIZER;
   const char *range;
   int64_t r1, r2;
@@ -3425,7 +3425,7 @@ static void put_file(struct kyt_mg_connection *conn, const char *path) {
   conn->status_code = mg_stat(conn, path, &file) ? 200 : 201;
 
   if ((rc = put_dir(conn, path)) == 0) {
-    kyt_mg_printf(conn, "HTTP/1.1 %d OK\r\n\r\n", conn->status_code);
+    mg_printf(conn, "HTTP/1.1 %d OK\r\n\r\n", conn->status_code);
   } else if (rc == -1) {
     send_http_error(conn, 500, http_500_error,
                     "put_dir(%s): %s", path, strerror(ERRNO));
@@ -3435,23 +3435,23 @@ static void put_file(struct kyt_mg_connection *conn, const char *path) {
                     "fopen(%s): %s", path, strerror(ERRNO));
   } else {
     fclose_on_exec(&file);
-    range = kyt_mg_get_header(conn, "Content-Range");
+    range = mg_get_header(conn, "Content-Range");
     r1 = r2 = 0;
     if (range != NULL && parse_range_header(range, &r1, &r2) > 0) {
       conn->status_code = 206;
       fseeko(file.fp, r1, SEEK_SET);
     }
     if (forward_body_data(conn, file.fp, INVALID_SOCKET, NULL)) {
-      kyt_mg_printf(conn, "HTTP/1.1 %d OK\r\n\r\n", conn->status_code);
+      mg_printf(conn, "HTTP/1.1 %d OK\r\n\r\n", conn->status_code);
     }
     mg_fclose(&file);
   }
 }
 
-static void send_ssi_file(struct kyt_mg_connection *, const char *,
+static void send_ssi_file(struct mg_connection *, const char *,
                           struct file *, int);
 
-static void do_ssi_include(struct kyt_mg_connection *conn, const char *ssi,
+static void do_ssi_include(struct mg_connection *conn, const char *ssi,
                            char *tag, int include_level) {
   char file_name[MG_BUF_LEN], path[PATH_MAX], *p;
   struct file file = STRUCT_FILE_INITIALIZER;
@@ -3495,7 +3495,7 @@ static void do_ssi_include(struct kyt_mg_connection *conn, const char *ssi,
 }
 
 #if !defined(NO_POPEN)
-static void do_ssi_exec(struct kyt_mg_connection *conn, char *tag) {
+static void do_ssi_exec(struct mg_connection *conn, char *tag) {
   char cmd[MG_BUF_LEN];
   struct file file = STRUCT_FILE_INITIALIZER;
 
@@ -3520,7 +3520,7 @@ static int mg_fgetc(struct file *filep, int offset) {
   }
 }
 
-static void send_ssi_file(struct kyt_mg_connection *conn, const char *path,
+static void send_ssi_file(struct mg_connection *conn, const char *path,
                           struct file *filep, int include_level) {
   char buf[MG_BUF_LEN];
   int ch, offset, len, in_ssi_tag;
@@ -3539,7 +3539,7 @@ static void send_ssi_file(struct kyt_mg_connection *conn, const char *path,
       assert(len <= (int) sizeof(buf));
       if (len < 6 || memcmp(buf, "<!--#", 5) != 0) {
         // Not an SSI tag, pass it
-        (void) kyt_mg_write(conn, buf, (size_t) len);
+        (void) mg_write(conn, buf, (size_t) len);
       } else {
         if (!memcmp(buf + 5, "include", 7)) {
           do_ssi_include(conn, path, buf + 12, include_level);
@@ -3564,14 +3564,14 @@ static void send_ssi_file(struct kyt_mg_connection *conn, const char *path,
     } else if (ch == '<') {
       in_ssi_tag = 1;
       if (len > 0) {
-        kyt_mg_write(conn, buf, (size_t) len);
+        mg_write(conn, buf, (size_t) len);
       }
       len = 0;
       buf[len++] = ch & 0xff;
     } else {
       buf[len++] = ch & 0xff;
       if (len == (int) sizeof(buf)) {
-        kyt_mg_write(conn, buf, (size_t) len);
+        mg_write(conn, buf, (size_t) len);
         len = 0;
       }
     }
@@ -3579,11 +3579,11 @@ static void send_ssi_file(struct kyt_mg_connection *conn, const char *path,
 
   // Send the rest of buffered data
   if (len > 0) {
-    kyt_mg_write(conn, buf, (size_t) len);
+    mg_write(conn, buf, (size_t) len);
   }
 }
 
-static void handle_ssi_file_request(struct kyt_mg_connection *conn,
+static void handle_ssi_file_request(struct mg_connection *conn,
                                     const char *path) {
   struct file file = STRUCT_FILE_INITIALIZER;
 
@@ -3593,7 +3593,7 @@ static void handle_ssi_file_request(struct kyt_mg_connection *conn,
   } else {
     conn->must_close = 1;
     fclose_on_exec(&file);
-    kyt_mg_printf(conn, "HTTP/1.1 200 OK\r\n"
+    mg_printf(conn, "HTTP/1.1 200 OK\r\n"
               "Content-Type: text/html\r\nConnection: %s\r\n\r\n",
               suggest_connection_header(conn));
     send_ssi_file(conn, path, &file, 0);
@@ -3601,20 +3601,20 @@ static void handle_ssi_file_request(struct kyt_mg_connection *conn,
   }
 }
 
-static void send_options(struct kyt_mg_connection *conn) {
+static void send_options(struct mg_connection *conn) {
   conn->status_code = 200;
 
-  kyt_mg_printf(conn, "%s", "HTTP/1.1 200 OK\r\n"
+  mg_printf(conn, "%s", "HTTP/1.1 200 OK\r\n"
             "Allow: GET, POST, HEAD, CONNECT, PUT, DELETE, OPTIONS\r\n"
             "DAV: 1\r\n\r\n");
 }
 
 // Writes PROPFIND properties for a collection element
-static void print_props(struct kyt_mg_connection *conn, const char* uri,
+static void print_props(struct mg_connection *conn, const char* uri,
                         struct file *filep) {
   char mtime[64];
   gmt_time_string(mtime, sizeof(mtime), &filep->modification_time);
-  conn->num_bytes_sent += kyt_mg_printf(conn,
+  conn->num_bytes_sent += mg_printf(conn,
       "<d:response>"
        "<d:href>%s</d:href>"
        "<d:propstat>"
@@ -3634,23 +3634,23 @@ static void print_props(struct kyt_mg_connection *conn, const char* uri,
 
 static void print_dav_dir_entry(struct de *de, void *data) {
   char href[PATH_MAX];
-  struct kyt_mg_connection *conn = (struct kyt_mg_connection *) data;
+  struct mg_connection *conn = (struct mg_connection *) data;
   mg_snprintf(conn, href, sizeof(href), "%s%s",
               conn->request_info.uri, de->file_name);
   print_props(conn, href, &de->file);
 }
 
-static void handle_propfind(struct kyt_mg_connection *conn, const char *path,
+static void handle_propfind(struct mg_connection *conn, const char *path,
                             struct file *filep) {
-  const char *depth = kyt_mg_get_header(conn, "Depth");
+  const char *depth = mg_get_header(conn, "Depth");
 
   conn->must_close = 1;
   conn->status_code = 207;
-  kyt_mg_printf(conn, "HTTP/1.1 207 Multi-Status\r\n"
+  mg_printf(conn, "HTTP/1.1 207 Multi-Status\r\n"
             "Connection: close\r\n"
             "Content-Type: text/xml; charset=utf-8\r\n\r\n");
 
-  conn->num_bytes_sent += kyt_mg_printf(conn,
+  conn->num_bytes_sent += mg_printf(conn,
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
       "<d:multistatus xmlns:d='DAV:'>\n");
 
@@ -3664,7 +3664,7 @@ static void handle_propfind(struct kyt_mg_connection *conn, const char *path,
     scan_directory(conn, path, conn, &print_dav_dir_entry);
   }
 
-  conn->num_bytes_sent += kyt_mg_printf(conn, "%s\n", "</d:multistatus>");
+  conn->num_bytes_sent += mg_printf(conn, "%s\n", "</d:multistatus>");
 }
 
 #if defined(USE_WEBSOCKET)
@@ -3821,25 +3821,25 @@ static void base64_encode(const unsigned char *src, int src_len, char *dst) {
   dst[j++] = '\0';
 }
 
-static void send_websocket_handshake(struct kyt_mg_connection *conn) {
+static void send_websocket_handshake(struct mg_connection *conn) {
   static const char *magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
   char buf[100], sha[20], b64_sha[sizeof(sha) * 2];
   SHA1_CTX sha_ctx;
 
   mg_snprintf(conn, buf, sizeof(buf), "%s%s",
-              kyt_mg_get_header(conn, "Sec-WebSocket-Key"), magic);
+              mg_get_header(conn, "Sec-WebSocket-Key"), magic);
   SHA1Init(&sha_ctx);
   SHA1Update(&sha_ctx, (unsigned char *) buf, strlen(buf));
   SHA1Final((unsigned char *) sha, &sha_ctx);
   base64_encode((unsigned char *) sha, sizeof(sha), b64_sha);
-  kyt_mg_printf(conn, "%s%s%s",
+  mg_printf(conn, "%s%s%s",
             "HTTP/1.1 101 Switching Protocols\r\n"
             "Upgrade: websocket\r\n"
             "Connection: Upgrade\r\n"
             "Sec-WebSocket-Accept: ", b64_sha, "\r\n\r\n");
 }
 
-static void read_websocket(struct kyt_mg_connection *conn) {
+static void read_websocket(struct mg_connection *conn) {
   unsigned char *buf = (unsigned char *) conn->buf + conn->request_len;
   int bits, n, stop = 0;
   size_t i, len, mask_len, data_len, header_len, body_len;
@@ -3930,8 +3930,8 @@ static void read_websocket(struct kyt_mg_connection *conn) {
   }
 }
 
-static void handle_websocket_request(struct kyt_mg_connection *conn) {
-  const char *version = kyt_mg_get_header(conn, "Sec-WebSocket-Version");
+static void handle_websocket_request(struct mg_connection *conn) {
+  const char *version = mg_get_header(conn, "Sec-WebSocket-Version");
   if (version == NULL || strcmp(version, "13") != 0) {
     send_http_error(conn, 426, "Upgrade Required", "%s", "Upgrade Required");
   } else if (conn->ctx->callbacks.websocket_connect != NULL &&
@@ -3946,14 +3946,14 @@ static void handle_websocket_request(struct kyt_mg_connection *conn) {
   }
 }
 
-static int is_websocket_request(const struct kyt_mg_connection *conn) {
+static int is_websocket_request(const struct mg_connection *conn) {
   const char *host, *upgrade, *connection, *version, *key;
 
-  host = kyt_mg_get_header(conn, "Host");
-  upgrade = kyt_mg_get_header(conn, "Upgrade");
-  connection = kyt_mg_get_header(conn, "Connection");
-  key = kyt_mg_get_header(conn, "Sec-WebSocket-Key");
-  version = kyt_mg_get_header(conn, "Sec-WebSocket-Version");
+  host = mg_get_header(conn, "Host");
+  upgrade = mg_get_header(conn, "Upgrade");
+  connection = mg_get_header(conn, "Connection");
+  key = mg_get_header(conn, "Sec-WebSocket-Key");
+  version = mg_get_header(conn, "Sec-WebSocket-Version");
 
   return host != NULL && upgrade != NULL && connection != NULL &&
     key != NULL && version != NULL &&
@@ -4009,7 +4009,7 @@ static int set_throttle(const char *spec, uint32_t remote_ip, const char *uri) {
   return throttle;
 }
 
-static uint32_t get_remote_ip(const struct kyt_mg_connection *conn) {
+static uint32_t get_remote_ip(const struct mg_connection *conn) {
   return ntohl(* (uint32_t *) &conn->client.rsa.sin.sin_addr);
 }
 
@@ -4017,7 +4017,7 @@ static uint32_t get_remote_ip(const struct kyt_mg_connection *conn) {
 #include "mod_lua.c"
 #endif // USE_LUA
 
-int kyt_mg_upload(struct kyt_mg_connection *conn, const char *destination_dir) {
+int mg_upload(struct mg_connection *conn, const char *destination_dir) {
   const char *content_type_header, *boundary_start;
   char buf[MG_BUF_LEN], path[PATH_MAX], fname[1024], boundary[100], *s;
   FILE *fp;
@@ -4040,7 +4040,7 @@ int kyt_mg_upload(struct kyt_mg_connection *conn, const char *destination_dir) {
   // ------WebKitFormBoundaryRVr
 
   // Extract boundary string from the Content-Type header
-  if ((content_type_header = kyt_mg_get_header(conn, "Content-Type")) == NULL ||
+  if ((content_type_header = mg_get_header(conn, "Content-Type")) == NULL ||
       (boundary_start = mg_strcasestr(content_type_header,
                                       "boundary=")) == NULL ||
       (sscanf(boundary_start, "boundary=\"%99[^\"]\"", boundary) == 0 &&
@@ -4054,7 +4054,7 @@ int kyt_mg_upload(struct kyt_mg_connection *conn, const char *destination_dir) {
   for (;;) {
     // Pull in headers
     assert(len >= 0 && len <= (int) sizeof(buf));
-    while ((n = kyt_mg_read(conn, buf + len, sizeof(buf) - len)) > 0) {
+    while ((n = mg_read(conn, buf + len, sizeof(buf) - len)) > 0) {
       len += n;
     }
     if ((headers_len = get_request_len(buf, len)) <= 0) {
@@ -4117,7 +4117,7 @@ int kyt_mg_upload(struct kyt_mg_connection *conn, const char *destination_dir) {
         memmove(buf, &buf[len - bl], bl);
         len = bl;
       }
-    } while (!eof && (n = kyt_mg_read(conn, buf + len, sizeof(buf) - len)) > 0);
+    } while (!eof && (n = mg_read(conn, buf + len, sizeof(buf) - len)) > 0);
     fclose(fp);
     if (eof) {
       num_uploaded_files++;
@@ -4130,12 +4130,12 @@ int kyt_mg_upload(struct kyt_mg_connection *conn, const char *destination_dir) {
   return num_uploaded_files;
 }
 
-static int is_put_or_delete_request(const struct kyt_mg_connection *conn) {
+static int is_put_or_delete_request(const struct mg_connection *conn) {
   const char *s = conn->request_info.request_method;
   return s != NULL && (!strcmp(s, "PUT") || !strcmp(s, "DELETE"));
 }
 
-static int get_first_ssl_listener_index(const struct kyt_mg_context *ctx) {
+static int get_first_ssl_listener_index(const struct mg_context *ctx) {
   int i, index = -1;
   for (i = 0; index == -1 && i < ctx->num_listening_sockets; i++) {
     index = ctx->listening_sockets[i].is_ssl ? i : -1;
@@ -4143,17 +4143,17 @@ static int get_first_ssl_listener_index(const struct kyt_mg_context *ctx) {
   return index;
 }
 
-static void redirect_to_https_port(struct kyt_mg_connection *conn, int ssl_index) {
+static void redirect_to_https_port(struct mg_connection *conn, int ssl_index) {
   char host[1025];
   const char *host_header;
 
-  if ((host_header = kyt_mg_get_header(conn, "Host")) == NULL ||
+  if ((host_header = mg_get_header(conn, "Host")) == NULL ||
       sscanf(host_header, "%1024[^:]", host) == 0) {
     // Cannot get host from the Host: header. Fallback to our IP address.
     sockaddr_to_string(host, sizeof(host), &conn->client.lsa);
   }
 
-  kyt_mg_printf(conn, "HTTP/1.1 302 Found\r\nLocation: https://%s:%d%s\r\n\r\n",
+  mg_printf(conn, "HTTP/1.1 302 Found\r\nLocation: https://%s:%d%s\r\n\r\n",
             host, (int) ntohs(conn->ctx->listening_sockets[ssl_index].
                               lsa.sin.sin_port), conn->request_info.uri);
 }
@@ -4162,8 +4162,8 @@ static void redirect_to_https_port(struct kyt_mg_connection *conn, int ssl_index
 // This function is called when the request is read, parsed and validated,
 // and Mongoose must decide what action to take: serve a file, or
 // a directory, or call embedded function, etcetera.
-static void handle_request(struct kyt_mg_connection *conn) {
-  struct kyt_mg_request_info *ri = &conn->request_info;
+static void handle_request(struct mg_connection *conn) {
+  struct mg_request_info *ri = &conn->request_info;
   char path[PATH_MAX];
   int uri_len, ssl_index;
   struct file file = STRUCT_FILE_INITIALIZER;
@@ -4172,7 +4172,7 @@ static void handle_request(struct kyt_mg_connection *conn) {
     * ((char *) conn->request_info.query_string++) = '\0';
   }
   uri_len = (int) strlen(ri->uri);
-  kyt_mg_url_decode(ri->uri, uri_len, (char *) ri->uri, uri_len + 1, 0);
+  mg_url_decode(ri->uri, uri_len, (char *) ri->uri, uri_len + 1, 0);
   remove_double_dots_and_double_slashes((char *) ri->uri);
   convert_uri_to_file_name(conn, path, sizeof(path), &file);
   conn->throttle = set_throttle(conn->ctx->config[THROTTLE],
@@ -4215,7 +4215,7 @@ static void handle_request(struct kyt_mg_connection *conn) {
              must_hide_file(conn, path)) {
     send_http_error(conn, 404, "Not Found", "%s", "File not found");
   } else if (file.is_directory && ri->uri[uri_len - 1] != '/') {
-    kyt_mg_printf(conn, "HTTP/1.1 301 Moved Permanently\r\n"
+    mg_printf(conn, "HTTP/1.1 301 Moved Permanently\r\n"
               "Location: %s/\r\n\r\n", ri->uri);
   } else if (!strcmp(ri->request_method, "PROPFIND")) {
     handle_propfind(conn, path, &file);
@@ -4255,7 +4255,7 @@ static void handle_request(struct kyt_mg_connection *conn) {
   }
 }
 
-static void close_all_listening_sockets(struct kyt_mg_context *ctx) {
+static void close_all_listening_sockets(struct mg_context *ctx) {
   int i;
   for (i = 0; i < ctx->num_listening_sockets; i++) {
     closesocket(ctx->listening_sockets[i].sock);
@@ -4298,7 +4298,7 @@ static int parse_port_string(const struct vec *vec, struct socket *so) {
   return 1;
 }
 
-static int set_ports_option(struct kyt_mg_context *ctx) {
+static int set_ports_option(struct mg_context *ctx) {
   const char *list = ctx->config[LISTENING_PORTS];
   int on = 1, success = 1;
 #if defined(USE_IPV6)
@@ -4351,19 +4351,19 @@ static int set_ports_option(struct kyt_mg_context *ctx) {
   return success;
 }
 
-static void log_header(const struct kyt_mg_connection *conn, const char *header,
+static void log_header(const struct mg_connection *conn, const char *header,
                        FILE *fp) {
   const char *header_value;
 
-  if ((header_value = kyt_mg_get_header(conn, header)) == NULL) {
+  if ((header_value = mg_get_header(conn, header)) == NULL) {
     (void) fprintf(fp, "%s", " -");
   } else {
     (void) fprintf(fp, " \"%s\"", header_value);
   }
 }
 
-static void log_access(const struct kyt_mg_connection *conn) {
-  const struct kyt_mg_request_info *ri;
+static void log_access(const struct mg_connection *conn) {
+  const struct mg_request_info *ri;
   FILE *fp;
   char date[64], src_addr[20];
 
@@ -4396,7 +4396,7 @@ static void log_access(const struct kyt_mg_connection *conn) {
 
 // Verify given socket address against the ACL.
 // Return -1 if ACL is malformed, 0 if address is disallowed, 1 if allowed.
-static int check_acl(struct kyt_mg_context *ctx, uint32_t remote_ip) {
+static int check_acl(struct mg_context *ctx, uint32_t remote_ip) {
   int allowed, flag;
   uint32_t net, mask;
   struct vec vec;
@@ -4422,7 +4422,7 @@ static int check_acl(struct kyt_mg_context *ctx, uint32_t remote_ip) {
 }
 
 #if !defined(_WIN32)
-static int set_uid_option(struct kyt_mg_context *ctx) {
+static int set_uid_option(struct mg_context *ctx) {
   struct passwd *pw;
   const char *uid = ctx->config[RUN_AS_USER];
   int success = 0;
@@ -4448,7 +4448,7 @@ static int set_uid_option(struct kyt_mg_context *ctx) {
 #if !defined(NO_SSL)
 static pthread_mutex_t *ssl_mutexes;
 
-static int sslize(struct kyt_mg_connection *conn, SSL_CTX *s, int (*func)(SSL *)) {
+static int sslize(struct mg_connection *conn, SSL_CTX *s, int (*func)(SSL *)) {
   return (conn->ssl = SSL_new(s)) != NULL &&
     SSL_set_fd(conn->ssl, conn->client.sock) == 1 &&
     func(conn->ssl) == 1;
@@ -4478,7 +4478,7 @@ static unsigned long ssl_id_callback(void) {
 }
 
 #if !defined(NO_SSL_DL)
-static int load_dll(struct kyt_mg_context *ctx, const char *dll_name,
+static int load_dll(struct mg_context *ctx, const char *dll_name,
                     struct ssl_func *sw) {
   union {void *p; void (*fp)(void);} u;
   void  *dll_handle;
@@ -4511,7 +4511,7 @@ static int load_dll(struct kyt_mg_context *ctx, const char *dll_name,
 #endif // NO_SSL_DL
 
 // Dynamically load SSL library. Set up ctx->ssl_ctx pointer.
-static int set_ssl_option(struct kyt_mg_context *ctx) {
+static int set_ssl_option(struct mg_context *ctx) {
   int i, size;
   const char *pem;
 
@@ -4568,7 +4568,7 @@ static int set_ssl_option(struct kyt_mg_context *ctx) {
   return 1;
 }
 
-static void uninitialize_ssl(struct kyt_mg_context *ctx) {
+static void uninitialize_ssl(struct mg_context *ctx) {
   int i;
   if (ctx->ssl_ctx != NULL) {
     CRYPTO_set_locking_callback(NULL);
@@ -4581,7 +4581,7 @@ static void uninitialize_ssl(struct kyt_mg_context *ctx) {
 }
 #endif // !NO_SSL
 
-static int set_gpass_option(struct kyt_mg_context *ctx) {
+static int set_gpass_option(struct mg_context *ctx) {
   struct file file = STRUCT_FILE_INITIALIZER;
   const char *path = ctx->config[GLOBAL_PASSWORDS_FILE];
   if (path != NULL && !mg_stat(fc(ctx), path, &file)) {
@@ -4591,18 +4591,18 @@ static int set_gpass_option(struct kyt_mg_context *ctx) {
   return 1;
 }
 
-static int set_acl_option(struct kyt_mg_context *ctx) {
+static int set_acl_option(struct mg_context *ctx) {
   return check_acl(ctx, (uint32_t) 0x7f000001UL) != -1;
 }
 
-static void reset_per_request_attributes(struct kyt_mg_connection *conn) {
+static void reset_per_request_attributes(struct mg_connection *conn) {
   conn->path_info = NULL;
   conn->num_bytes_sent = conn->consumed_content = 0;
   conn->status_code = -1;
   conn->must_close = conn->request_len = conn->throttle = 0;
 }
 
-static void close_socket_gracefully(struct kyt_mg_connection *conn) {
+static void close_socket_gracefully(struct mg_connection *conn) {
 #if defined(_WIN32)
   char buf[MG_BUF_LEN];
   int n;
@@ -4635,7 +4635,7 @@ static void close_socket_gracefully(struct kyt_mg_connection *conn) {
   closesocket(conn->client.sock);
 }
 
-static void close_connection(struct kyt_mg_connection *conn) {
+static void close_connection(struct mg_connection *conn) {
   conn->must_close = 1;
   if (conn->client.sock != INVALID_SOCKET) {
     close_socket_gracefully(conn);
@@ -4650,7 +4650,7 @@ static void close_connection(struct kyt_mg_connection *conn) {
 #endif
 }
 
-void kyt_mg_close_connection(struct kyt_mg_connection *conn) {
+void mg_close_connection(struct mg_connection *conn) {
 #ifndef NO_SSL
   if (conn->client_ssl_ctx != NULL) {
     SSL_CTX_free((SSL_CTX *) conn->client_ssl_ctx);
@@ -4667,10 +4667,10 @@ void kyt_mg_close_connection(struct kyt_mg_connection *conn) {
 #endif
 // CIG END
 
-struct kyt_mg_connection *mg_connect(const char *host, int port, int use_ssl,
+struct mg_connection *mg_connect(const char *host, int port, int use_ssl,
                                  char *ebuf, size_t ebuf_len) {
-  static struct kyt_mg_context fake_ctx;
-  struct kyt_mg_connection *conn = NULL;
+  static struct mg_context fake_ctx;
+  struct mg_connection *conn = NULL;
   struct sockaddr_in sin;
   struct hostent *he;
   SOCKET sock;
@@ -4691,7 +4691,7 @@ struct kyt_mg_connection *mg_connect(const char *host, int port, int use_ssl,
       snprintf(ebuf, ebuf_len, "connect(%s:%d): %s",
                host, port, strerror(ERRNO));
       closesocket(sock);
-    } else if ((conn = (struct kyt_mg_connection *)
+    } else if ((conn = (struct mg_connection *)
                 calloc(1, sizeof(*conn) + MAX_REQUEST_SIZE)) == NULL) {
       snprintf(ebuf, ebuf_len, "calloc(): %s", strerror(ERRNO));
       closesocket(sock);
@@ -4736,7 +4736,7 @@ static int is_valid_uri(const char *uri) {
   return uri[0] == '/' || (uri[0] == '*' && uri[1] == '\0');
 }
 
-static int getreq(struct kyt_mg_connection *conn, char *ebuf, size_t ebuf_len) {
+static int getreq(struct mg_connection *conn, char *ebuf, size_t ebuf_len) {
   const char *cl;
 
   ebuf[0] = '\0';
@@ -4767,10 +4767,10 @@ static int getreq(struct kyt_mg_connection *conn, char *ebuf, size_t ebuf_len) {
   return ebuf[0] == '\0';
 }
 
-struct kyt_mg_connection *kyt_mg_download(const char *host, int port, int use_ssl,
+struct mg_connection *mg_download(const char *host, int port, int use_ssl,
                                   char *ebuf, size_t ebuf_len,
                                   const char *fmt, ...) {
-  struct kyt_mg_connection *conn;
+  struct mg_connection *conn;
   va_list ap;
 
   va_start(ap, fmt);
@@ -4782,15 +4782,15 @@ struct kyt_mg_connection *kyt_mg_download(const char *host, int port, int use_ss
     getreq(conn, ebuf, ebuf_len);
   }
   if (ebuf[0] != '\0' && conn != NULL) {
-    kyt_mg_close_connection(conn);
+    mg_close_connection(conn);
     conn = NULL;
   }
 
   return conn;
 }
 
-static void process_new_connection(struct kyt_mg_connection *conn) {
-  struct kyt_mg_request_info *ri = &conn->request_info;
+static void process_new_connection(struct mg_connection *conn) {
+  struct mg_request_info *ri = &conn->request_info;
   int keep_alive_enabled, keep_alive, discard_len;
   char ebuf[100];
 
@@ -4845,7 +4845,7 @@ static void process_new_connection(struct kyt_mg_connection *conn) {
 }
 
 // Worker threads take accepted socket from the queue
-static int consume_socket(struct kyt_mg_context *ctx, struct socket *sp) {
+static int consume_socket(struct mg_context *ctx, struct socket *sp) {
   (void) pthread_mutex_lock(&ctx->mutex);
   DEBUG_TRACE(("going idle"));
 
@@ -4875,10 +4875,10 @@ static int consume_socket(struct kyt_mg_context *ctx, struct socket *sp) {
 }
 
 static void *worker_thread(void *thread_func_param) {
-  struct kyt_mg_context *ctx = thread_func_param;
-  struct kyt_mg_connection *conn;
+  struct mg_context *ctx = thread_func_param;
+  struct mg_connection *conn;
 
-  conn = (struct kyt_mg_connection *) calloc(1, sizeof(*conn) + MAX_REQUEST_SIZE);
+  conn = (struct mg_connection *) calloc(1, sizeof(*conn) + MAX_REQUEST_SIZE);
   if (conn == NULL) {
     cry(fc(ctx), "%s", "Cannot create new connection struct, OOM");
   } else {
@@ -4927,7 +4927,7 @@ static void *worker_thread(void *thread_func_param) {
 }
 
 // Master thread adds accepted socket to a queue
-static void produce_socket(struct kyt_mg_context *ctx, const struct socket *sp) {
+static void produce_socket(struct mg_context *ctx, const struct socket *sp) {
   (void) pthread_mutex_lock(&ctx->mutex);
 
   // If the queue is full, wait
@@ -4960,7 +4960,7 @@ static int set_sock_timeout(SOCKET sock, int milliseconds) {
 }
 
 static void accept_new_connection(const struct socket *listener,
-                                  struct kyt_mg_context *ctx) {
+                                  struct mg_context *ctx) {
   struct socket so;
   char src_addr[20];
   socklen_t len = sizeof(so.rsa);
@@ -4990,7 +4990,7 @@ static void accept_new_connection(const struct socket *listener,
 }
 
 static void *master_thread(void *thread_func_param) {
-  struct kyt_mg_context *ctx = thread_func_param;
+  struct mg_context *ctx = thread_func_param;
   struct pollfd *pfd;
   int i;
 
@@ -5027,7 +5027,7 @@ static void *master_thread(void *thread_func_param) {
   free(pfd);
   DEBUG_TRACE(("stopping workers"));
 
-  // Stop signal received: somebody called kyt_mg_stop. Quit.
+  // Stop signal received: somebody called mg_stop. Quit.
   close_all_listening_sockets(ctx);
 
   // Wakeup workers that are waiting for connections to handle.
@@ -5051,14 +5051,14 @@ static void *master_thread(void *thread_func_param) {
 #endif
   DEBUG_TRACE(("exiting"));
 
-  // Signal kyt_mg_stop() that we're done.
+  // Signal mg_stop() that we're done.
   // WARNING: This must be the very last thing this
   // thread does, as ctx becomes invalid after this line.
   ctx->stop_flag = 2;
   return NULL;
 }
 
-static void free_context(struct kyt_mg_context *ctx) {
+static void free_context(struct mg_context *ctx) {
   int i;
 
   // Deallocate config parameters
@@ -5082,7 +5082,7 @@ static void free_context(struct kyt_mg_context *ctx) {
   free(ctx);
 }
 
-void kyt_mg_stop(struct kyt_mg_context *ctx) {
+void mg_stop(struct mg_context *ctx) {
   ctx->stop_flag = 1;
 
   // Wait until mg_fini() stops
@@ -5096,10 +5096,10 @@ void kyt_mg_stop(struct kyt_mg_context *ctx) {
 #endif // _WIN32
 }
 
-struct kyt_mg_context *kyt_mg_start(const struct kyt_mg_callbacks *callbacks,
+struct mg_context *mg_start(const struct mg_callbacks *callbacks,
                             void *user_data,
                             const char **options) {
-  struct kyt_mg_context *ctx;
+  struct mg_context *ctx;
   const char *name, *value, *default_value;
   int i;
 
@@ -5111,7 +5111,7 @@ struct kyt_mg_context *kyt_mg_start(const struct kyt_mg_callbacks *callbacks,
 
   // Allocate context and initialize reasonable general case defaults.
   // TODO(lsm): do proper error handling here.
-  if ((ctx = (struct kyt_mg_context *) calloc(1, sizeof(*ctx))) == NULL) {
+  if ((ctx = (struct mg_context *) calloc(1, sizeof(*ctx))) == NULL) {
     return NULL;
   }
   ctx->callbacks = *callbacks;
@@ -5172,11 +5172,11 @@ struct kyt_mg_context *kyt_mg_start(const struct kyt_mg_callbacks *callbacks,
   (void) pthread_cond_init(&ctx->sq_full, NULL);
 
   // Start master (listening) thread
-  kyt_mg_start_thread(master_thread, ctx);
+  mg_start_thread(master_thread, ctx);
 
   // Start worker threads
   for (i = 0; i < atoi(ctx->config[NUM_THREADS]); i++) {
-    if (kyt_mg_start_thread(worker_thread, ctx) != 0) {
+    if (mg_start_thread(worker_thread, ctx) != 0) {
       cry(fc(ctx), "Cannot start worker thread: %ld", (long) ERRNO);
     } else {
       ctx->num_threads++;
