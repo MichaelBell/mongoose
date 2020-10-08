@@ -2373,7 +2373,7 @@ static char *mg_fgets(char *buf, size_t size, struct file *filep, char **p) {
   size_t len;
 
   if (filep->membuf != NULL && *p != NULL) {
-    eof = memchr(*p, '\n', &filep->membuf[filep->size] - *p);
+    eof = (char*)memchr(*p, '\n', &filep->membuf[filep->size] - *p);
     len = (size_t) (eof - *p) > size - 1 ? size - 1 : (size_t) (eof - *p);
     memcpy(buf, *p, len);
     buf[len] = '\0';
@@ -4320,7 +4320,7 @@ static int set_ports_option(struct mg_context *ctx) {
                // On Windows, SO_REUSEADDR is recommended only for
                // broadcast UDP sockets
                setsockopt(so.sock, SOL_SOCKET, SO_REUSEADDR,
-                          (void *) &on, sizeof(on)) != 0 ||
+                          (const char*) &on, sizeof(on)) != 0 ||
 #if defined(USE_IPV6)
                setsockopt(so.sock, IPPROTO_IPV6, IPV6_V6ONLY, (void *) &off,
                           sizeof(off)) != 0 ||
@@ -4331,7 +4331,7 @@ static int set_ports_option(struct mg_context *ctx) {
           (int) vec.len, vec.ptr, strerror(ERRNO));
       closesocket(so.sock);
       success = 0;
-    } else if ((ptr = realloc(ctx->listening_sockets,
+    } else if ((ptr = (struct socket*)realloc(ctx->listening_sockets,
                               (ctx->num_listening_sockets + 1) *
                               sizeof(ctx->listening_sockets[0]))) == NULL) {
       closesocket(so.sock);
@@ -4875,7 +4875,7 @@ static int consume_socket(struct mg_context *ctx, struct socket *sp) {
 }
 
 static void *worker_thread(void *thread_func_param) {
-  struct mg_context *ctx = thread_func_param;
+  struct mg_context *ctx = (struct mg_context*)thread_func_param;
   struct mg_connection *conn;
 
   conn = (struct mg_connection *) calloc(1, sizeof(*conn) + MAX_REQUEST_SIZE);
@@ -4955,8 +4955,8 @@ static int set_sock_timeout(SOCKET sock, int milliseconds) {
   t.tv_sec = milliseconds / 1000;
   t.tv_usec = (milliseconds * 1000) % 1000000;
 #endif
-  return setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (void *) &t, sizeof(t)) ||
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (void *) &t, sizeof(t));
+  return setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *) &t, sizeof(t)) ||
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char *) &t, sizeof(t));
 }
 
 static void accept_new_connection(const struct socket *listener,
@@ -4983,14 +4983,14 @@ static void accept_new_connection(const struct socket *listener,
     // keep-alive, next keep-alive handshake will figure out that the client
     // is down and will close the server end.
     // Thanks to Igor Klopov who suggested the patch.
-    setsockopt(so.sock, SOL_SOCKET, SO_KEEPALIVE, (void *) &on, sizeof(on));
+    setsockopt(so.sock, SOL_SOCKET, SO_KEEPALIVE, (const char *) &on, sizeof(on));
     set_sock_timeout(so.sock, atoi(ctx->config[REQUEST_TIMEOUT]));
     produce_socket(ctx, &so);
   }
 }
 
 static void *master_thread(void *thread_func_param) {
-  struct mg_context *ctx = thread_func_param;
+  struct mg_context *ctx = (struct mg_context*)thread_func_param;
   struct pollfd *pfd;
   int i;
 
@@ -5005,7 +5005,7 @@ static void *master_thread(void *thread_func_param) {
   pthread_setschedparam(pthread_self(), SCHED_RR, &sched_param);
 #endif
 
-  pfd = calloc(ctx->num_listening_sockets, sizeof(pfd[0]));
+  pfd = (struct pollfd*)calloc(ctx->num_listening_sockets, sizeof(pfd[0]));
   while (pfd != NULL && ctx->stop_flag == 0) {
     for (i = 0; i < ctx->num_listening_sockets; i++) {
       pfd[i].fd = (int)ctx->listening_sockets[i].sock;
