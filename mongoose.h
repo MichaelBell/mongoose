@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <stddef.h>
 
-#ifdef __cplusplus
+#if defined(__cplusplus) && !defined(KYT_MONGOOSE_BUILD)
 extern "C" {
 #endif // __cplusplus
 
@@ -351,7 +351,7 @@ int mg_url_decode(const char *src, int src_len, char *dst,
 char *mg_md5(char buf[33], ...);
 
 
-#ifdef __cplusplus
+#if defined(__cplusplus) && !defined(KYT_MONGOOSE_BUILD)
 }
 #endif // __cplusplus
 
